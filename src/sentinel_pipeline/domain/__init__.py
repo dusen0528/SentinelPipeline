@@ -9,7 +9,7 @@ Domain Layer
 - models: 데이터 모델 (Event, Stream)
 """
 
-from sentinel_pipeline.domain.interfaces.module import ModuleBase
+from sentinel_pipeline.domain.interfaces.module import BaseModule, ModuleBase, ModuleContext
 from sentinel_pipeline.domain.models.event import Event, EventType, EventStage
 from sentinel_pipeline.domain.models.stream import (
     StreamConfig,
@@ -20,6 +20,8 @@ from sentinel_pipeline.domain.models.stream import (
 __all__ = [
     # 인터페이스
     "ModuleBase",
+    "BaseModule",
+    "ModuleContext",
     # 이벤트 모델
     "Event",
     "EventType",

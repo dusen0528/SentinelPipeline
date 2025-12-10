@@ -28,10 +28,14 @@ MetadataType = dict[str, Any]
 @runtime_checkable
 class ModuleBase(Protocol):
     """
-    파이프라인 모듈 기본 인터페이스
+    파이프라인 모듈 기본 인터페이스 (Protocol)
     
     모든 감지/변형 모듈은 이 Protocol을 구현해야 합니다.
     PipelineEngine이 이 인터페이스를 통해 모듈을 실행합니다.
+    
+    플러그인 개발 시:
+    - BaseModule을 상속받아 사용하는 것을 권장합니다 (편의성)
+    - 또는 이 Protocol을 직접 구현할 수 있습니다 (유연성)
     
     Attributes:
         name: 모듈 고유 식별자 (예: "FireDetectModule")
@@ -41,91 +45,45 @@ class ModuleBase(Protocol):
         options: 모듈별 설정 옵션
     
     Example:
-        >>> class FireDetectModule:
+        >>> # 방법 1: BaseModule 상속 (권장)
+        >>> class FireDetectModule(BaseModule):
         ...     name = "FireDetectModule"
-        ...     enabled = True
         ...     priority = 100
         ...     timeout_ms = 50
         ...     options = {"threshold": 0.6}
         ...     
         ...     def process_frame(self, frame, metadata):
-        ...         # 화재 감지 로직
         ...         events = []
         ...         return frame, events, metadata
         ...     
-        ...     def process_audio(self, chunk, metadata):
-        ...         return [], metadata
+        >>> # 방법 2: Protocol 직접 구현
+        >>> class CustomModule:
+        ...     name: str = "CustomModule"
+        ...     enabled: bool = True
+        ...     priority: int = 150
+        ...     timeout_ms: int = 30
+        ...     options: dict[str, Any] = {}
+        ...     
+        ...     def process_frame(self, frame, metadata):
+        ...         return frame, [], metadata
     """
     
-    # === 필수 속성 ===
+    # === 필수 속성 (속성 기반으로 정의) ===
     
-    @property
-    def name(self) -> str:
-        """
-        모듈 고유 식별자
-        
-        config.json의 modules[].name과 일치해야 합니다.
-        플러그인 레지스트리에서 이 이름으로 모듈을 찾습니다.
-        """
-        ...
+    name: str
+    """모듈 고유 식별자"""
     
-    @property
-    def enabled(self) -> bool:
-        """
-        활성화 여부
-        
-        False이면 파이프라인에서 이 모듈을 건너뜁니다.
-        런타임에 동적으로 변경 가능합니다.
-        """
-        ...
+    enabled: bool
+    """활성화 여부 (런타임에 변경 가능)"""
     
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        """enabled 속성 설정"""
-        ...
+    priority: int
+    """실행 우선순위 (낮을수록 먼저 실행)"""
     
-    @property
-    def priority(self) -> int:
-        """
-        실행 우선순위
-        
-        파이프라인에서 모듈 실행 순서를 결정합니다.
-        낮은 값이 먼저 실행됩니다.
-        
-        권장 범위:
-        - 0~99: 전처리 (크기 조정, 정규화)
-        - 100~199: 감지 (화재, 침입, 비명)
-        - 200~299: 변형 (블러, 마스킹)
-        - 300~399: 후처리 (오버레이, 워터마크)
-        """
-        ...
+    timeout_ms: int
+    """처리 제한 시간 (밀리초)"""
     
-    @property
-    def timeout_ms(self) -> int:
-        """
-        처리 제한 시간 (밀리초)
-        
-        이 시간을 초과하면 해당 프레임의 결과를 폐기합니다.
-        반복적으로 초과하면 모듈이 자동으로 비활성화될 수 있습니다.
-        
-        권장값: 실시간 처리를 위해 30~50ms
-        """
-        ...
-    
-    @property
-    def options(self) -> dict[str, Any]:
-        """
-        모듈별 설정 옵션
-        
-        config.json의 modules[].options에서 로드됩니다.
-        각 모듈이 필요한 설정을 자유롭게 정의합니다.
-        
-        예시:
-        - threshold: 감지 임계값
-        - min_consecutive: 연속 감지 횟수
-        - blur_kernel: 블러 커널 크기
-        """
-        ...
+    options: dict[str, Any]
+    """모듈별 설정 옵션"""
     
     # === 필수 메서드 ===
     
@@ -310,4 +268,115 @@ class ModuleContext:
             "total_events": self.total_events,
             "avg_latency_ms": round(self.avg_latency_ms, 2),
         }
+
+
+class BaseModule:
+    """
+    모듈 베이스 클래스
+    
+    플러그인 개발 편의를 위해 제공하는 베이스 클래스입니다.
+    이 클래스를 상속받으면 ModuleBase Protocol을 자동으로 만족합니다.
+    
+    플러그인은 이 클래스를 상속받아 필요한 메서드만 구현하면 됩니다.
+    
+    Attributes:
+        name: 모듈 고유 식별자 (하위 클래스에서 정의)
+        enabled: 활성화 여부 (기본값: True)
+        priority: 실행 우선순위 (하위 클래스에서 정의)
+        timeout_ms: 처리 제한 시간 (하위 클래스에서 정의)
+        options: 모듈별 설정 옵션 (기본값: {})
+    
+    Example:
+        >>> class FireDetectModule(BaseModule):
+        ...     name = "FireDetectModule"
+        ...     priority = 100
+        ...     timeout_ms = 50
+        ...     
+        ...     def __init__(self, **options):
+        ...         super().__init__()
+        ...         self.options.update(options)
+        ...     
+        ...     def process_frame(self, frame, metadata):
+        ...         # 화재 감지 로직
+        ...         events = []
+        ...         return frame, events, metadata
+    """
+    
+    name: str
+    """모듈 고유 식별자 (하위 클래스에서 반드시 정의)"""
+    
+    enabled: bool = True
+    """활성화 여부"""
+    
+    priority: int
+    """실행 우선순위 (하위 클래스에서 반드시 정의)"""
+    
+    timeout_ms: int
+    """처리 제한 시간 (하위 클래스에서 반드시 정의)"""
+    
+    options: dict[str, Any]
+    """모듈별 설정 옵션"""
+    
+    def __init__(self, **options: Any) -> None:
+        """
+        베이스 모듈 초기화
+        
+        Args:
+            **options: 모듈 설정 옵션
+        """
+        self.options = options.copy() if options else {}
+        
+        # 하위 클래스에서 필수 속성이 정의되었는지 확인
+        if not hasattr(self, "name") or not isinstance(self.name, str):
+            raise TypeError(
+                f"{self.__class__.__name__}는 'name' 속성을 정의해야 합니다"
+            )
+        if not hasattr(self, "priority") or not isinstance(self.priority, int):
+            raise TypeError(
+                f"{self.__class__.__name__}는 'priority' 속성을 정의해야 합니다"
+            )
+        if not hasattr(self, "timeout_ms") or not isinstance(self.timeout_ms, int):
+            raise TypeError(
+                f"{self.__class__.__name__}는 'timeout_ms' 속성을 정의해야 합니다"
+            )
+    
+    def process_frame(
+        self,
+        frame: FrameType,
+        metadata: MetadataType,
+    ) -> tuple[FrameType, list["Event"], MetadataType]:
+        """
+        프레임을 처리합니다.
+        
+        하위 클래스에서 반드시 구현해야 합니다.
+        기본 구현은 프레임을 그대로 반환합니다.
+        
+        Args:
+            frame: 입력 프레임
+            metadata: 프레임 메타데이터
+        
+        Returns:
+            (처리된 프레임, 이벤트 목록, 업데이트된 메타데이터)
+        """
+        return frame, [], metadata
+    
+    def process_audio(
+        self,
+        chunk: AudioChunkType,
+        metadata: MetadataType,
+    ) -> tuple[list["Event"], MetadataType]:
+        """
+        오디오 청크를 처리합니다.
+        
+        오디오 기반 감지 모듈에서 구현합니다.
+        기본 구현은 빈 이벤트 목록을 반환합니다.
+        
+        Args:
+            chunk: 오디오 청크
+            metadata: 오디오 메타데이터
+        
+        Returns:
+            (이벤트 목록, 업데이트된 메타데이터)
+        """
+        return [], metadata
 
