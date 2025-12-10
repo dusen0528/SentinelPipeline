@@ -10,7 +10,10 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
+from queue import Queue, Full, Empty
+from logging.handlers import RotatingFileHandler
 
 import numpy as np
 
@@ -43,6 +46,12 @@ class FFmpegPublisher:
         preset: str = "ultrafast",
         bitrate: str = "2M",
         pix_fmt: str = "yuv420p",
+        log_stderr: bool = False,
+        stderr_log_path: str | Path | None = None,
+        max_stderr_log_size_mb: int = 10,
+        stderr_log_backup_count: int = 3,
+        frame_queue_size: int = 30,
+        drop_policy: str = "drop_oldest",
     ):
         """
         FFmpegPublisher 초기화.
@@ -57,6 +66,12 @@ class FFmpegPublisher:
             preset: 인코딩 프리셋 (기본 ultrafast)
             bitrate: 출력 비트레이트 (기본 2M)
             pix_fmt: 픽셀 포맷 (기본 yuv420p)
+            log_stderr: stderr를 로그 파일로 저장할지 여부 (기본 False)
+            stderr_log_path: stderr 로그 파일 경로 (None이면 logs/ffmpeg_{stream_id}.log)
+            max_stderr_log_size_mb: stderr 로그 파일 최대 크기 (MB, 기본 10MB)
+            stderr_log_backup_count: stderr 로그 백업 파일 수 (기본 3)
+            frame_queue_size: 프레임 큐 크기 (기본 30)
+            drop_policy: 큐 가득 참 시 드롭 정책 ("drop_oldest" 또는 "drop_newest", 기본 drop_oldest)
         """
         self._stream_id = stream_id
         self._output_url = output_url
@@ -67,12 +82,26 @@ class FFmpegPublisher:
         self._preset = preset
         self._bitrate = bitrate
         self._pix_fmt = pix_fmt
+        self._log_stderr = log_stderr
+        self._stderr_log_path = Path(stderr_log_path) if stderr_log_path else None
+        self._max_stderr_log_size_mb = max_stderr_log_size_mb
+        self._stderr_log_backup_count = stderr_log_backup_count
+        self._frame_queue_size = frame_queue_size
+        self._drop_policy = drop_policy
         
         self._process: subprocess.Popen | None = None
         self._running = False
         self._lock = threading.Lock()
         self._frame_count = 0
         self._error_count = 0
+        self._dropped_frames = 0
+        self._stderr_log_file = None
+        self._stderr_handler: RotatingFileHandler | None = None
+        
+        # 프레임 큐 (인코더 지연 시 파이프라인 블로킹 방지)
+        self._frame_queue: Queue[FrameType] = Queue(maxsize=frame_queue_size)
+        self._queue_thread: threading.Thread | None = None
+        self._queue_stop_event = threading.Event()
         
         self._logger = get_logger(__name__, stream_id=stream_id)
     
@@ -119,19 +148,58 @@ class FFmpegPublisher:
                 cmd = self._build_ffmpeg_command()
                 self._logger.debug("FFmpeg 명령", cmd=" ".join(cmd))
                 
+                # stderr 처리 결정 (순환 로그 사용)
+                if self._log_stderr:
+                    if self._stderr_log_path:
+                        log_path = self._stderr_log_path
+                    else:
+                        # 기본 경로: logs/ffmpeg_{stream_id}.log
+                        log_dir = Path("logs")
+                        log_dir.mkdir(exist_ok=True)
+                        log_path = log_dir / f"ffmpeg_{self._stream_id}.log"
+                    
+                    # 순환 로그 핸들러 생성
+                    self._stderr_handler = RotatingFileHandler(
+                        str(log_path),
+                        maxBytes=self._max_stderr_log_size_mb * 1024 * 1024,
+                        backupCount=self._stderr_log_backup_count,
+                        encoding="utf-8",
+                    )
+                    stderr_handle = self._stderr_handler.stream
+                    log_file = None
+                else:
+                    # 로그 없음 (데드락 방지)
+                    stderr_handle = subprocess.DEVNULL
+                    log_file = None
+                    self._stderr_handler = None
+                
                 # FFmpeg 프로세스 시작
-                # stdout/stderr를 DEVNULL로 설정하여 파이프 데드락 방지
+                # stdout는 항상 DEVNULL (데드락 방지)
+                # stderr는 옵션에 따라 로그 파일 또는 DEVNULL
                 self._process = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stderr=stderr_handle,
                     bufsize=10**8,  # 큰 버퍼 사용
                 )
+                
+                # 로그 파일 핸들 저장 (나중에 닫기 위해)
+                self._stderr_log_file = log_file
                 
                 self._running = True
                 self._frame_count = 0
                 self._error_count = 0
+                self._dropped_frames = 0
+                
+                # 프레임 큐 처리 스레드 시작
+                self._queue_stop_event.clear()
+                self._queue_thread = threading.Thread(
+                    target=self._frame_queue_worker,
+                    name=f"ffmpeg_queue_{self._stream_id}",
+                    daemon=True,
+                )
+                self._queue_thread.start()
                 
                 self._logger.info("FFmpeg 퍼블리셔 시작 완료")
                 return True
@@ -152,13 +220,13 @@ class FFmpegPublisher:
     
     def write_frame(self, frame: FrameType) -> bool:
         """
-        프레임을 출력 스트림에 씁니다.
+        프레임을 큐에 추가합니다 (비동기 처리).
         
         Args:
             frame: BGR 형식의 numpy 배열
             
         Returns:
-            성공 여부
+            성공 여부 (큐에 추가됨)
         """
         if not self.is_running:
             return False
@@ -169,20 +237,58 @@ class FFmpegPublisher:
                 import cv2
                 frame = cv2.resize(frame, (self._width, self._height))
             
-            # stdin에 프레임 쓰기
-            self._process.stdin.write(frame.tobytes())  # type: ignore
-            self._frame_count += 1
-            return True
+            # 큐에 프레임 추가
+            try:
+                self._frame_queue.put_nowait(frame)
+                return True
+            except Full:
+                # 큐가 가득 찬 경우 드롭 정책 적용
+                if self._drop_policy == "drop_oldest":
+                    try:
+                        self._frame_queue.get_nowait()  # 오래된 프레임 제거
+                        self._frame_queue.put_nowait(frame)
+                        self._dropped_frames += 1
+                        self._logger.debug("프레임 큐 가득 참, 오래된 프레임 드롭")
+                        return True
+                    except Empty:
+                        pass
+                else:
+                    # drop_newest: 새 프레임 거부
+                    self._dropped_frames += 1
+                    self._logger.debug("프레임 큐 가득 참, 새 프레임 드롭")
+                    return False
             
-        except BrokenPipeError:
-            self._error_count += 1
-            self._logger.warning("FFmpeg 파이프 끊김")
-            self._running = False
-            return False
         except Exception as e:
             self._error_count += 1
-            self._logger.error("프레임 쓰기 실패", error=str(e))
+            self._logger.error("프레임 큐 추가 실패", error=str(e))
             return False
+    
+    def _frame_queue_worker(self) -> None:
+        """프레임 큐에서 프레임을 읽어 FFmpeg에 전송하는 워커 스레드."""
+        while self._running and not self._queue_stop_event.is_set():
+            try:
+                # 큐에서 프레임 가져오기 (타임아웃으로 종료 확인 가능)
+                try:
+                    frame = self._frame_queue.get(timeout=0.1)
+                except Empty:
+                    continue
+                
+                # FFmpeg stdin에 프레임 쓰기
+                if self._process and self._process.stdin:
+                    try:
+                        self._process.stdin.write(frame.tobytes())
+                        self._frame_count += 1
+                    except BrokenPipeError:
+                        self._error_count += 1
+                        self._logger.warning("FFmpeg 파이프 끊김")
+                        self._running = False
+                        break
+                    except Exception as e:
+                        self._error_count += 1
+                        self._logger.error("프레임 쓰기 실패", error=str(e))
+                        
+            except Exception as e:
+                self._logger.error("프레임 큐 워커 오류", error=str(e))
     
     def stop(self, timeout: float = 5.0) -> None:
         """
@@ -215,6 +321,27 @@ class FFmpegPublisher:
             except Exception as e:
                 self._logger.error("FFmpeg 중지 중 오류", error=str(e))
             finally:
+                # 프레임 큐 워커 스레드 종료
+                self._queue_stop_event.set()
+                if self._queue_thread and self._queue_thread.is_alive():
+                    self._queue_thread.join(timeout=2.0)
+                
+                # 큐에 남은 프레임 버리기
+                while not self._frame_queue.empty():
+                    try:
+                        self._frame_queue.get_nowait()
+                    except Empty:
+                        break
+                
+                # 로그 파일/핸들러 닫기
+                if self._stderr_log_file:
+                    self._stderr_log_file.close()
+                    self._stderr_log_file = None
+                
+                if self._stderr_handler:
+                    self._stderr_handler.close()
+                    self._stderr_handler = None
+                
                 self._process = None
                 self._logger.info("FFmpeg 퍼블리셔 중지 완료")
     
@@ -262,6 +389,9 @@ class FFmpegPublisher:
             "running": self.is_running,
             "frame_count": self._frame_count,
             "error_count": self._error_count,
+            "dropped_frames": self._dropped_frames,
+            "queue_size": self._frame_queue.qsize(),
+            "queue_max_size": self._frame_queue_size,
             "width": self._width,
             "height": self._height,
             "fps": self._fps,
