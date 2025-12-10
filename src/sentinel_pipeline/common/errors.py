@@ -48,8 +48,10 @@ class ErrorCode(str, Enum):
     QUEUE_FULL = "QUEUE_FULL"                   # 큐 가득 참
     
     # 추론 관련 (5xx)
-    INFERENCE_FAILED = "INFERENCE_FAILED"       # 추론 실패
-    MODEL_LOAD_FAILED = "MODEL_LOAD_FAILED"     # 모델 로드 실패
+    INFERENCE_FAILED = "INFERENCE_FAILED"               # 추론 실패
+    INFERENCE_MODEL_NOT_FOUND = "INFERENCE_MODEL_NOT_FOUND"  # 모델 파일 없음
+    INFERENCE_LOAD_FAILED = "INFERENCE_LOAD_FAILED"     # 모델 로드 실패
+    MODEL_LOAD_FAILED = "MODEL_LOAD_FAILED"             # 모델 로드 실패 (deprecated)
     
     # 일반 (5xx)
     INTERNAL_ERROR = "INTERNAL_ERROR"           # 내부 오류
@@ -85,6 +87,8 @@ _ERROR_CODE_TO_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.RESOURCE_EXHAUSTED: 500,
     ErrorCode.QUEUE_FULL: 500,
     ErrorCode.INFERENCE_FAILED: 500,
+    ErrorCode.INFERENCE_MODEL_NOT_FOUND: 404,
+    ErrorCode.INFERENCE_LOAD_FAILED: 500,
     ErrorCode.MODEL_LOAD_FAILED: 500,
     ErrorCode.INTERNAL_ERROR: 500,
     ErrorCode.UNKNOWN_ERROR: 500,
