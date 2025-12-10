@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  sentinel-pipeline:
+    build: .
+    container_name: sentinel_pipeline
+    env_file: .env
+    volumes:
+      - ./models:/app/models
+      - ./config.json:/app/config.json
+    ports:
+      - "9000:9000"
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: "6G"
+
+  flashphoner:
+    image: flashphoner/webcallserver:latest
+    container_name: flashphoner
+    ports:
+      - "1935:1935"
+      - "8443:8443"
+    restart: always
