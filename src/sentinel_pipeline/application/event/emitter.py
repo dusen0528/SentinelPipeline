@@ -93,6 +93,8 @@ class EventEmitter:
         
         # 전송 클라이언트 (Infrastructure에서 설정)
         self._sync_transport: Callable[[list[Event]], bool] | None = None
+        # 리소스 정리를 위한 transport 추적
+        self._transports: list[Any] = []
         
         # 통계
         self._total_emitted = 0
@@ -114,6 +116,13 @@ class EventEmitter:
             transport: 이벤트 목록을 받아 전송하는 함수
         """
         self._sync_transport = transport
+        # 리소스 정리를 위해 transport 객체 추적
+        if hasattr(transport, '__self__'):
+            # 메서드 바인딩인 경우
+            self._transports.append(transport.__self__)
+        elif not callable(transport) or hasattr(transport, 'close') or hasattr(transport, 'stop_async'):
+            # 객체인 경우
+            self._transports.append(transport)
     
     def set_on_events_emitted(
         self,
@@ -342,4 +351,43 @@ class EventEmitter:
         self._total_dropped = 0
         self._total_sent = 0
         self._total_failed = 0
+    
+    def shutdown(self) -> None:
+        """
+        이벤트 발행자를 종료하고 모든 리소스를 정리합니다.
+        
+        애플리케이션 종료 시 호출되어 transport 리소스 누수를 방지합니다.
+        """
+        # 이벤트 발행자 중지
+        self.stop(timeout=10.0)
+        
+        # 큐에 남은 이벤트 플러시
+        self.flush(timeout=5.0)
+        
+        # 모든 transport 리소스 정리
+        import asyncio
+        for transport in self._transports:
+            try:
+                if hasattr(transport, 'stop_async'):
+                    # 비동기 transport
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # 이미 실행 중인 루프면 태스크로 실행
+                            asyncio.create_task(transport.stop_async())
+                        else:
+                            loop.run_until_complete(transport.stop_async())
+                    except RuntimeError:
+                        # 이벤트 루프가 없으면 새로 생성
+                        asyncio.run(transport.stop_async())
+                elif hasattr(transport, 'close'):
+                    # 동기 transport
+                    transport.close()
+                elif hasattr(transport, 'stop'):
+                    transport.stop()
+            except Exception as e:
+                logger.warning(f"Transport 종료 중 오류: {e}", error=str(e))
+        
+        self._transports.clear()
+        logger.info("이벤트 발행자 종료 완료")
 
