@@ -410,6 +410,7 @@ ConfigManager.reload()
     "FaceBlurModule": {"enabled": true, "error_count": 0}
   }
 }
+```
 
 ---
 
