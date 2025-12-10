@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.uv-cache/
+uv.lock
+.env
+models/*.onnx
+models/*.engine
+*.log
+dist/
+build/
