@@ -338,10 +338,10 @@ class EventFilter:
         if event.confidence < self.min_confidence:
             return False
         
-        if self.start_ts and event.ts < self.start_ts:
+        if self.start_ts is not None and event.ts < self.start_ts:
             return False
         
-        if self.end_ts and event.ts > self.end_ts:
+        if self.end_ts is not None and event.ts > self.end_ts:
             return False
         
         return True
