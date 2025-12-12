@@ -51,6 +51,7 @@ class ModuleScheduler:
     DEFAULT_MAX_CONSECUTIVE_TIMEOUTS = 10
     DEFAULT_ERROR_WINDOW_SECONDS = 60.0
     DEFAULT_COOLDOWN_SECONDS = 300.0
+    DEFAULT_MAX_WORKERS = 4  # 기본 스레드 풀 크기
     
     def __init__(
         self,
@@ -58,6 +59,8 @@ class ModuleScheduler:
         max_consecutive_timeouts: int = DEFAULT_MAX_CONSECUTIVE_TIMEOUTS,
         error_window_seconds: float = DEFAULT_ERROR_WINDOW_SECONDS,
         cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
+        max_workers: int | None = None,
+        auto_scale_workers: bool = True,
     ) -> None:
         """
         스케줄러 초기화
@@ -67,10 +70,26 @@ class ModuleScheduler:
             max_consecutive_timeouts: 연속 타임아웃 시 비활성화 임계치
             error_window_seconds: 에러 카운트 윈도우 (초)
             cooldown_seconds: 비활성화 후 재활성화 대기 시간 (초)
+            max_workers: ThreadPoolExecutor 최대 워커 수 (None이면 자동 계산)
+            auto_scale_workers: 모듈 수에 따라 자동으로 워커 수 조정 (기본 True)
         """
         self._modules: dict[str, ModuleContext] = {}
         self._lock = threading.RLock()
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="module_exec")
+        self._auto_scale_workers = auto_scale_workers
+        
+        # max_workers 결정: 설정값 또는 자동 계산
+        if max_workers is None:
+            if auto_scale_workers:
+                # 초기에는 기본값 사용, 모듈 등록 시 조정
+                max_workers = self.DEFAULT_MAX_WORKERS
+            else:
+                max_workers = self.DEFAULT_MAX_WORKERS
+        
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="module_exec"
+        )
+        self._max_workers = max_workers
         
         self.max_consecutive_errors = max_consecutive_errors
         self.max_consecutive_timeouts = max_consecutive_timeouts
@@ -107,6 +126,9 @@ class ModuleScheduler:
                 priority=module.priority,
                 enabled=module.enabled,
             )
+            
+            # 모듈 수에 따라 스레드 풀 크기 조정 (선택적)
+            self._adjust_thread_pool_size()
     
     def unregister(self, name: str) -> bool:
         """
@@ -334,6 +356,49 @@ class ModuleScheduler:
                 name: ctx.to_dict()
                 for name, ctx in self._modules.items()
             }
+    
+    def _adjust_thread_pool_size(self) -> None:
+        """
+        모듈 수에 따라 스레드 풀 크기를 동적으로 조정합니다.
+        
+        auto_scale_workers가 True이면 모듈 수에 따라 워커 수를 계산하고,
+        필요시 ThreadPoolExecutor를 재생성합니다.
+        """
+        if not self._auto_scale_workers:
+            return
+        
+        active_count = len([m for m in self._modules.values() if m.module.enabled])
+        
+        # 모듈 수의 1.5배, 최소 2, 최대 16
+        suggested_workers = max(2, min(16, int(active_count * 1.5)))
+        
+        if suggested_workers != self._max_workers:
+            logger.info(
+                "스레드 풀 크기 조정",
+                active_modules=active_count,
+                old_max_workers=self._max_workers,
+                new_max_workers=suggested_workers,
+            )
+            
+            # 기존 executor 종료
+            old_executor = self._executor
+            old_executor.shutdown(wait=False, cancel_futures=True)
+            
+            # 새 executor 생성
+            self._max_workers = suggested_workers
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._max_workers,
+                thread_name_prefix="module_exec"
+            )
+            
+            logger.info("스레드 풀 크기 조정 완료")
+        elif active_count > self._max_workers * 2:
+            logger.warning(
+                "활성 모듈 수가 스레드 풀 크기의 2배를 초과",
+                active_modules=active_count,
+                max_workers=self._max_workers,
+                suggestion="max_workers를 늘리거나 모듈을 비활성화하세요",
+            )
     
     def shutdown(self) -> None:
         """스케줄러를 종료합니다."""

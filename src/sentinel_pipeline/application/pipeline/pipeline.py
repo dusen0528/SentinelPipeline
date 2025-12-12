@@ -50,6 +50,9 @@ class PipelineEngine:
         self,
         max_consecutive_errors: int = 5,
         max_consecutive_timeouts: int = 10,
+        max_workers: int | None = None,
+        error_window_seconds: float = 60.0,
+        cooldown_seconds: float = 300.0,
     ) -> None:
         """
         파이프라인 엔진 초기화
@@ -57,10 +60,16 @@ class PipelineEngine:
         Args:
             max_consecutive_errors: 연속 에러 시 모듈 비활성화 임계치
             max_consecutive_timeouts: 연속 타임아웃 시 모듈 비활성화 임계치
+            max_workers: 모듈 실행 스레드 풀 크기
+            error_window_seconds: 에러 카운트 윈도우 (초)
+            cooldown_seconds: 비활성화 후 재활성화 대기 시간 (초)
         """
         self.scheduler = ModuleScheduler(
             max_consecutive_errors=max_consecutive_errors,
             max_consecutive_timeouts=max_consecutive_timeouts,
+            max_workers=max_workers,
+            error_window_seconds=error_window_seconds,
+            cooldown_seconds=cooldown_seconds,
         )
         
         self._lock = threading.RLock()
@@ -73,6 +82,7 @@ class PipelineEngine:
         self._total_frames = 0
         self._total_events = 0
         self._start_time: float | None = None
+        self._stats_task_started = False
     
     def register_module(self, module: ModuleBase) -> None:
         """
@@ -289,6 +299,29 @@ class PipelineEngine:
             "uptime_seconds": round(uptime, 1),
             "modules": self.get_module_stats(),
         }
+
+    def start_stats_publisher(self, interval_sec: float = 5.0) -> None:
+        """모듈 통계를 주기적으로 WS로 전송합니다."""
+        if self._stats_task_started:
+            return
+        self._stats_task_started = True
+
+        async def _loop():
+            from sentinel_pipeline.interface.api.ws_bus import publish_module_stats
+
+            while True:
+                stats = self.get_module_stats()
+                payload = {"modules": stats, "ts": time.time()}
+                try:
+                    await publish_module_stats(payload)
+                except Exception as e:
+                    logger.debug("module_stats publish failed", error=str(e))
+                await asyncio.sleep(interval_sec)
+
+        try:
+            asyncio.create_task(_loop())
+        except RuntimeError:
+            logger.debug("event loop not running; module_stats publisher not started")
     
     def shutdown(self) -> None:
         """파이프라인을 종료합니다."""

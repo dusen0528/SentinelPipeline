@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 from typing import TYPE_CHECKING, Any, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 
 from sentinel_pipeline.common.logging import get_logger
 from sentinel_pipeline.common.errors import ConfigError, ErrorCode
@@ -44,6 +44,8 @@ class AppConfig:
     """애플리케이션 설정 (런타임용)"""
     modules: list[ModuleConfig] = field(default_factory=list)
     global_config: GlobalConfig = field(default_factory=GlobalConfig)
+    # 전체 설정 bundle (pipeline/event/observability/streams 포함)
+    _bundle: dict[str, Any] | None = None
 
 
 class ConfigManager:
@@ -72,6 +74,7 @@ class ConfigManager:
     def __init__(self) -> None:
         """설정 관리자 초기화"""
         self._config: AppConfig | None = None
+        self._bundle: dict[str, Any] | None = None  # 전체 설정 bundle
         self._lock = threading.RLock()
         
         # 변경 콜백 목록
@@ -83,15 +86,19 @@ class ConfigManager:
         # 전역 설정 변경 콜백
         self._on_global_change_callbacks: list[Callable[[GlobalConfig], None]] = []
     
-    def load_config(self, config: AppConfig) -> None:
+    def load_config(self, config: AppConfig, bundle: dict[str, Any] | None = None) -> None:
         """
         설정을 로드합니다.
         
         Args:
             config: 애플리케이션 설정
+            bundle: 전체 설정 bundle (선택)
         """
         with self._lock:
             self._config = config
+            self._bundle = bundle
+            if bundle is not None:
+                config._bundle = bundle
             logger.info(
                 f"설정 로드 완료: 모듈 {len(config.modules)}개",
                 module_count=len(config.modules),
@@ -127,16 +134,19 @@ class ConfigManager:
         with self._lock:
             return self._config.global_config if self._config else None
     
-    def update_config(self, new_config: AppConfig) -> None:
+    def update_config(self, new_config: AppConfig, bundle: dict[str, Any] | None = None) -> None:
         """
         전체 설정을 업데이트합니다.
         
         Args:
             new_config: 새 설정
+            bundle: 전체 설정 bundle (선택)
         """
         with self._lock:
-            old_config = self._config
             self._config = new_config
+            if bundle is not None:
+                self._bundle = bundle
+                new_config._bundle = bundle
             
             logger.info("설정 전체 업데이트")
         
@@ -339,4 +349,49 @@ class ConfigManager:
                     "inference_timeout_ms": self._config.global_config.inference_timeout_ms,
                 },
             }
+
+    def get_bundle(self) -> dict[str, Any] | None:
+        """전체 설정 bundle을 반환합니다."""
+        with self._lock:
+            return self._bundle
+
+    def to_full_dict(self) -> dict[str, Any]:
+        """전체 설정을 딕셔너리로 반환합니다 (bundle 포함)."""
+        with self._lock:
+            if not self._config:
+                return {}
+
+            # App (dataclass) → dict
+            app_dict = asdict(self._config)
+            app_dict.pop("_bundle", None)  # 내부 필드 제거
+
+            result: dict[str, Any] = {"app": app_dict}
+
+            if self._bundle:
+                bundle = self._bundle.copy()
+
+                # app (RuntimeAppConfig dataclass) → dict
+                app_bundle = bundle.get("app")
+                if app_bundle is not None:
+                    try:
+                        bundle["app"] = asdict(app_bundle)
+                    except TypeError:
+                        pass
+
+                # streams (Domain StreamConfig list) → dict list
+                streams_bundle = bundle.get("streams")
+                if streams_bundle is not None:
+                    stream_dicts: list[dict[str, Any]] = []
+                    for s in streams_bundle:
+                        if hasattr(s, "to_dict"):
+                            stream_dicts.append(s.to_dict())
+                        else:
+                            try:
+                                stream_dicts.append(asdict(s))
+                            except TypeError:
+                                stream_dicts.append({"stream": str(s)})
+                    bundle["streams"] = stream_dicts
+
+                result["bundle"] = bundle
+            return result
 

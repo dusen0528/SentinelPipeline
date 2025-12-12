@@ -18,6 +18,8 @@ from sentinel_pipeline.domain.models.stream import (
     StreamState,
     StreamStatus,
 )
+import asyncio
+from sentinel_pipeline.interface.api.ws_bus import publish_stream_update
 
 if TYPE_CHECKING:
     pass
@@ -491,6 +493,21 @@ class StreamManager:
                 self._on_status_change(stream_id, status)
             except Exception as e:
                 logger.error(f"상태 변경 콜백 오류: {e}")
+
+        # WebSocket 브로드캐스트 (non-blocking)
+        state = self._streams.get(stream_id)
+        stats = state.state.stats if state else None
+        payload = {
+            "stream_id": stream_id,
+            "status": status.value,
+            "fps": stats.fps if stats else None,
+            "error_count": stats.error_count if stats else None,
+            "last_frame_ts": stats.last_frame_ts if stats else None,
+        }
+        try:
+            asyncio.create_task(publish_stream_update(payload))
+        except RuntimeError:
+            logger.debug("WS loop not running; skip stream_update")
     
     def apply_global_config(
         self,

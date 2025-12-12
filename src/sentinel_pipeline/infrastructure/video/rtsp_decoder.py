@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
@@ -63,6 +63,10 @@ class RTSPDecoder:
         self._width: int = 0
         self._height: int = 0
         self._fps: float = 0.0
+        
+        # 읽기 타임아웃 추적
+        self._last_frame_time: float | None = None
+        self._read_timeout_enabled = True
         
         self._logger = get_logger(__name__, stream_id=stream_id)
     
@@ -121,9 +125,12 @@ class RTSPDecoder:
                 try:
                     self._cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, self._connection_timeout_ms)
                     self._cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, self._read_timeout_ms)
-                except AttributeError:
+                    self._read_timeout_enabled = True
+                except (AttributeError, cv2.error):
+                    # 타임아웃 속성이 없거나 설정 실패 시 수동 타임아웃 사용
+                    self._read_timeout_enabled = False
                     self._logger.warning(
-                        "OpenCV 타임아웃 설정 미지원, 기본값 사용"
+                        "OpenCV 타임아웃 설정 미지원, 수동 타임아웃 로직 사용"
                     )
                 
                 # 연결 확인
@@ -144,11 +151,13 @@ class RTSPDecoder:
                     self._fps = 25.0
                 
                 self._connected = True
+                self._last_frame_time = time.time()
                 self._logger.info(
                     "RTSP 스트림 연결 성공",
                     width=self._width,
                     height=self._height,
                     fps=self._fps,
+                    timeout_enabled=self._read_timeout_enabled,
                 )
                 return True
                 
@@ -174,6 +183,18 @@ class RTSPDecoder:
         if not self.is_connected:
             return False, None
         
+        # 수동 타임아웃 체크 (OpenCV 타임아웃 미지원 시)
+        if not self._read_timeout_enabled and self._last_frame_time is not None:
+            elapsed = time.time() - self._last_frame_time
+            timeout_sec = self._read_timeout_ms / 1000.0
+            if elapsed > timeout_sec * 2:  # 타임아웃의 2배 이상 지나면 재연결 필요
+                self._logger.warning(
+                    "프레임 읽기 타임아웃 감지",
+                    elapsed_sec=f"{elapsed:.1f}",
+                    timeout_sec=f"{timeout_sec:.1f}",
+                )
+                return False, None
+        
         try:
             ret, frame = self._cap.read()  # type: ignore
             
@@ -181,6 +202,8 @@ class RTSPDecoder:
                 self._logger.warning("프레임 읽기 실패")
                 return False, None
             
+            # 성공 시 타임스탬프 업데이트
+            self._last_frame_time = time.time()
             return True, frame
             
         except Exception as e:
@@ -268,6 +291,33 @@ class RTSPDecoder:
         """URL에서 비밀번호를 마스킹합니다."""
         import re
         return re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", url)
+    
+    @property
+    def connection_health(self) -> dict[str, Any]:
+        """
+        연결 상태 지표를 반환합니다.
+        
+        Health 엔드포인트에서 사용할 수 있는 상태 정보를 제공합니다.
+        
+        Returns:
+            연결 상태 딕셔너리:
+            - connected: 연결 여부
+            - timeout_enabled: OpenCV 타임아웃 지원 여부
+            - last_frame_age_sec: 마지막 프레임 이후 경과 시간 (초)
+            - width, height, fps: 스트림 정보
+        """
+        last_frame_age = None
+        if self._last_frame_time is not None:
+            last_frame_age = time.time() - self._last_frame_time
+        
+        return {
+            "connected": self.is_connected,
+            "timeout_enabled": self._read_timeout_enabled,
+            "last_frame_age_sec": last_frame_age,
+            "width": self._width,
+            "height": self._height,
+            "fps": self._fps,
+        }
     
     def __enter__(self) -> RTSPDecoder:
         """컨텍스트 매니저 진입."""
