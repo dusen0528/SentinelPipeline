@@ -83,11 +83,64 @@ class ConfigLoader:
         """
         추가 교차 검증.
         - 이벤트 배치 크기 <= 큐 크기
+        - transport URL 필수 (enabled 시)
+        - downscale/max_fps 범위
+        - 중복 모듈/스트림 ID
+        - reconnect 파라미터 합리성
         """
         errors: list[str] = []
 
+        # 1) 이벤트 설정
         if config.event.batch_size > config.event.max_queue_size:
             errors.append("event.batch_size는 event.max_queue_size 이하여야 합니다")
+
+        for transport in config.event.transports:
+            if transport.enabled and not transport.url:
+                errors.append(f"이벤트 전송 URL이 없습니다: {transport.type}")
+
+        # 2) 스트림 설정
+        stream_ids: set[str] = set()
+        for stream in config.streams:
+            if stream.stream_id in stream_ids:
+                errors.append(f"중복된 스트림 ID: {stream.stream_id}")
+            stream_ids.add(stream.stream_id)
+
+            if stream.max_fps <= 0 or stream.max_fps > 120:
+                errors.append(f"스트림 {stream.stream_id}: max_fps는 1~120 범위여야 합니다")
+            if not 0.0 < stream.downscale <= 1.0:
+                errors.append(f"스트림 {stream.stream_id}: downscale은 0.0보다 크고 1.0 이하여야 합니다")
+
+            if stream.reconnect_enabled:
+                if stream.reconnect_max_retries < 0:
+                    errors.append(f"스트림 {stream.stream_id}: reconnect_max_retries는 0 이상이어야 합니다")
+                if stream.reconnect_base_delay <= 0:
+                    errors.append(f"스트림 {stream.stream_id}: reconnect_base_delay는 0보다 커야 합니다")
+                if stream.reconnect_max_delay < stream.reconnect_base_delay:
+                    errors.append(f"스트림 {stream.stream_id}: reconnect_max_delay는 reconnect_base_delay 이상이어야 합니다")
+
+        # 3) 모듈 설정
+        module_names: set[str] = set()
+        for module in config.modules:
+            if module.name in module_names:
+                errors.append(f"중복된 모듈 이름: {module.name}")
+            module_names.add(module.name)
+
+            if not 0 <= module.priority <= 1000:
+                errors.append(f"모듈 {module.name}: priority는 0~1000 범위여야 합니다")
+            if not 10 <= module.timeout_ms <= 5000:
+                errors.append(f"모듈 {module.name}: timeout_ms는 10~5000 범위여야 합니다")
+
+        # 4) 전역 설정
+        if config.global_config.max_fps <= 0 or config.global_config.max_fps > 120:
+            errors.append("global.max_fps는 1~120 범위여야 합니다")
+        if not 0.0 < config.global_config.downscale <= 1.0:
+            errors.append("global.downscale은 0.0보다 크고 1.0 이하여야 합니다")
+
+        # 5) 파이프라인 설정
+        if config.pipeline.max_workers < 1:
+            errors.append("pipeline.max_workers는 1 이상이어야 합니다")
+        if config.pipeline.max_consecutive_errors < 1:
+            errors.append("pipeline.max_consecutive_errors는 1 이상이어야 합니다")
 
         return (len(errors) == 0), errors
 

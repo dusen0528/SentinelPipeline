@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from sentinel_pipeline.application.config.manager import ConfigManager
 from sentinel_pipeline.common.errors import ConfigError, ErrorCode
+from sentinel_pipeline.common.logging import get_logger
 from sentinel_pipeline.interface.api.dependencies import (
     get_config_loader,
     get_config_manager,
@@ -20,6 +21,7 @@ from sentinel_pipeline.interface.config.loader import ConfigLoader
 from sentinel_pipeline.interface.config.schema import AppConfig
 
 router = APIRouter(prefix="/api/config", tags=["config"])
+logger = get_logger(__name__)
 
 
 # === DTO 정의 ===
@@ -57,8 +59,8 @@ class UpdateModuleConfigRequest(BaseModel):
 async def get_config(
     manager: ConfigManager = Depends(get_config_manager),
 ) -> ConfigResponse:
-    """현재 설정을 조회합니다 (runtime ConfigManager 기준)."""
-    return ConfigResponse(data=manager.to_dict())
+    """현재 설정을 조회합니다 (전체 bundle 포함)."""
+    return ConfigResponse(data=manager.to_full_dict())
 
 
 @router.put("", response_model=ConfigResponse, dependencies=[Depends(verify_admin)])
@@ -82,10 +84,33 @@ async def update_config(
         )
     runtime_config = loader.to_runtime(config)
     bundle = loader.to_runtime_bundle(config)
-    manager.update_config(runtime_config)
-    # ConfigManager가 modules/global만 보유하므로
-    # 응답에 bundle을 함께 내려 전체 설정을 확인할 수 있게 합니다.
-    return ConfigResponse(data={"app": manager.to_dict(), "bundle": bundle})
+    manager.load_config(runtime_config, bundle=bundle)
+
+    # 런타임 컴포넌트에 재적용
+    from sentinel_pipeline.interface.api.dependencies import (
+        get_event_emitter,
+        get_pipeline_engine,
+        get_stream_manager,
+    )
+    from sentinel_pipeline.main import apply_bundle_to_components
+
+    try:
+        pipeline_engine = get_pipeline_engine()
+        event_emitter = get_event_emitter()
+        stream_manager = get_stream_manager()
+
+        apply_bundle_to_components(
+            bundle=bundle,
+            pipeline_engine=pipeline_engine,
+            event_emitter=event_emitter,
+            stream_manager=stream_manager,
+        )
+    except Exception as e:
+        # 재적용 실패해도 설정 저장은 유지, 경고만 남김
+        logger.error(f"설정 재적용 실패: {e}", error=str(e))
+
+    # 전체 설정 반환 (bundle 포함)
+    return ConfigResponse(data=manager.to_full_dict())
 
 
 @router.get("/modules/{name}", response_model=ModuleConfigResponse)

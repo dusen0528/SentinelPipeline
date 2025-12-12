@@ -50,6 +50,9 @@ class PipelineEngine:
         self,
         max_consecutive_errors: int = 5,
         max_consecutive_timeouts: int = 10,
+        max_workers: int | None = None,
+        error_window_seconds: float = 60.0,
+        cooldown_seconds: float = 300.0,
     ) -> None:
         """
         파이프라인 엔진 초기화
@@ -57,10 +60,16 @@ class PipelineEngine:
         Args:
             max_consecutive_errors: 연속 에러 시 모듈 비활성화 임계치
             max_consecutive_timeouts: 연속 타임아웃 시 모듈 비활성화 임계치
+            max_workers: 모듈 실행 스레드 풀 크기
+            error_window_seconds: 에러 카운트 윈도우 (초)
+            cooldown_seconds: 비활성화 후 재활성화 대기 시간 (초)
         """
         self.scheduler = ModuleScheduler(
             max_consecutive_errors=max_consecutive_errors,
             max_consecutive_timeouts=max_consecutive_timeouts,
+            max_workers=max_workers,
+            error_window_seconds=error_window_seconds,
+            cooldown_seconds=cooldown_seconds,
         )
         
         self._lock = threading.RLock()

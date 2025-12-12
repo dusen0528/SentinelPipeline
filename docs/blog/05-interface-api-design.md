@@ -675,25 +675,6 @@ uvicorn.run(app, host="0.0.0.0", port=9000)
 
 ---
 
-## 다음 단계
-
-1. **8단계: 엔트리포인트**
-   - `main.py`/`run.py`에서 `to_runtime_bundle()`을 실제 컴포넌트 초기화에 연결
-   - `set_app_context()` 호출
-   - uvicorn 진입점 구성
-
-2. **7단계: 플러그인**
-   - fire/scream/face_blur 모듈 구현
-   - PLUGIN_REGISTRY 등록
-
-3. **6단계: 대시보드**
-   - 템플릿/정적 파일/WebSocket 뼈대 추가
-
-4. **검증 확장**
-   - ConfigLoader.validate 보강
-   - ConfigManager/GET /api/config 정합성 맞추기
-
----
 
 ## 마무리
 

@@ -413,3 +413,84 @@ def create_ws_client_thread(
     
     return client, thread
 
+
+def create_ws_transport(
+    url: str,
+    headers: dict[str, str] | None = None,
+) -> tuple[Callable[[list["Event"]], bool], Callable[[], None] | None]:
+    """
+    WebSocket 전송 함수를 생성합니다.
+    
+    **주의**: WebSocket은 비동기이므로, 동기 래퍼를 사용합니다.
+    실제 전송은 별도 스레드에서 비동기로 처리됩니다.
+    
+    Args:
+        url: WebSocket URL
+        headers: 추가 헤더
+        
+    Returns:
+        (전송 함수, 종료 함수) 튜플
+    """
+    client = WebSocketEventClient(url, headers=headers)
+    thread = threading.Thread(
+        target=run_ws_client,
+        args=(client,),
+        daemon=True,
+    )
+    thread.start()
+    
+    async def _send_events_async(events: list["Event"]) -> bool:
+        """비동기로 이벤트 전송"""
+        try:
+            for event in events:
+                await client.send_event(event)
+            return True
+        except Exception as e:
+            client._logger.error(f"WebSocket 전송 오류: {e}", error=str(e))
+            return False
+    
+    def send_events_sync(events: list["Event"]) -> bool:
+        """동기 래퍼: 이벤트를 비동기로 전송"""
+        if not client.is_connected:
+            client._logger.warning("WebSocket 미연결 상태")
+            return False
+        
+        try:
+            # 별도 태스크로 전송 (이벤트 루프가 실행 중이어야 함)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(_send_events_async(events))
+            else:
+                loop.run_until_complete(_send_events_async(events))
+            return True
+        except RuntimeError:
+            # 이벤트 루프가 없으면 새로 생성
+            try:
+                asyncio.run(_send_events_async(events))
+                return True
+            except Exception as e:
+                client._logger.error(f"WebSocket 전송 오류: {e}", error=str(e))
+                return False
+        except Exception as e:
+            client._logger.error(f"WebSocket 전송 래퍼 오류: {e}", error=str(e))
+            return False
+    
+    def close() -> None:
+        """클라이언트 종료 (안전한 비동기 종료)"""
+        try:
+            if client.is_connected:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(client.disconnect())
+                    else:
+                        loop.run_until_complete(client.disconnect())
+                except RuntimeError:
+                    asyncio.run(client.disconnect())
+        except Exception as e:
+            client._logger.warning(f"WebSocket 종료 중 오류: {e}", error=str(e))
+        
+        thread.join(timeout=5.0)
+    
+    return send_events_sync, close
+
