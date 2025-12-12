@@ -25,6 +25,7 @@ from sentinel_pipeline.infrastructure.video.rtsp_decoder import RTSPDecoder
 from sentinel_pipeline.interface.api.app import create_app
 from sentinel_pipeline.interface.api.dependencies import set_app_context
 from sentinel_pipeline.interface.config.loader import ConfigLoader
+from sentinel_pipeline.plugins import load_plugins_from_config
 
 logger = get_logger(__name__)
 
@@ -33,27 +34,6 @@ _stream_manager: StreamManager | None = None
 _pipeline_engine: PipelineEngine | None = None
 _event_emitter: EventEmitter | None = None
 _transport_close_funcs: list[Callable[[], None]] = []
-
-
-def load_plugins(config_loader: ConfigLoader, app_config: dict) -> list:
-    """
-    플러그인을 로드합니다.
-    
-    TODO: 7단계에서 구현 예정
-    - PLUGIN_REGISTRY에서 모듈 클래스 조회
-    - 모듈 인스턴스 생성 및 설정 적용
-    - PipelineEngine에 등록
-    
-    Args:
-        config_loader: 설정 로더
-        app_config: 애플리케이션 설정
-        
-    Returns:
-        로드된 모듈 인스턴스 목록
-    """
-    # TODO: 플러그인 로딩 구현
-    logger.warning("플러그인 로딩은 7단계에서 구현 예정입니다")
-    return []
 
 
 def setup_transports(event_config: dict) -> tuple[Callable[[list[Event]], bool], list[Callable[[], None]]]:
@@ -136,6 +116,12 @@ def setup_transports(event_config: dict) -> tuple[Callable[[list[Event]], bool],
     return combined_transport, close_functions
 
 
+def _str_to_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "y", "on"}
+
+
 def initialize_components(config_path: str | Path | None = None) -> tuple:
     """
     모든 컴포넌트를 초기화하고 배선합니다.
@@ -177,7 +163,10 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
     # 3. PipelineEngine 초기화 (pipeline 설정 적용)
     pipeline_engine = PipelineEngine(
         max_consecutive_errors=pipeline_cfg.get("max_consecutive_errors", 5),
-        max_consecutive_timeouts=pipeline_cfg.get("auto_disable_threshold", 10),
+        max_consecutive_timeouts=pipeline_cfg.get(
+            "max_consecutive_timeouts",
+            pipeline_cfg.get("auto_disable_threshold", 10),
+        ),
         max_workers=pipeline_cfg.get("max_workers", 4),
         error_window_seconds=pipeline_cfg.get("error_window_seconds", 60),
         cooldown_seconds=pipeline_cfg.get("cooldown_seconds", 300),
@@ -230,9 +219,19 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
     stream_manager.set_frame_callback(frame_callback)
     
     # 6. 플러그인 로드 및 등록
-    modules = load_plugins(loader, app_config.model_dump())
+    strict_missing = _str_to_bool(os.getenv("REQUIRE_REGISTERED_MODULES"), default=False)
+    if strict_missing:
+        logger.info("플러그인 로딩: 미등록 모듈 발견 시 실패 모드")
+    else:
+        logger.info("플러그인 로딩: 미등록 모듈 발견 시 경고 후 스킵")
+    modules_cfg = app_config.model_dump().get("modules", [])
+    modules = load_plugins_from_config(modules_cfg, strict_missing=strict_missing)
     for module in modules:
         pipeline_engine.register_module(module)
+
+    # 모듈 통계 주기 전송 (WS)
+    stats_interval = float(os.getenv("MODULE_STATS_INTERVAL", "5.0"))
+    pipeline_engine.start_stats_publisher(interval_sec=stats_interval)
     
     # 7. 초기 스트림 시작 (enabled=True인 것만)
     for stream_config in streams_cfg:
@@ -274,13 +273,16 @@ def apply_bundle_to_components(
     streams_cfg = bundle.get("streams", []) or []
     app_cfg = bundle.get("app", {}) or {}
     global_cfg = app_cfg.get("global_config", {}) if app_cfg else {}
+    observability_cfg = bundle.get("observability", {}) or {}
 
     # 1) PipelineEngine 설정 재적용
     if pipeline_cfg:
         scheduler = pipeline_engine.scheduler
         scheduler.max_consecutive_errors = pipeline_cfg.get("max_consecutive_errors", 5)
-        # TODO: pipeline schema에 max_consecutive_timeouts 필드 추가 후 명확히 매핑
-        scheduler.max_consecutive_timeouts = pipeline_cfg.get("auto_disable_threshold", 10)
+        scheduler.max_consecutive_timeouts = pipeline_cfg.get(
+            "max_consecutive_timeouts",
+            pipeline_cfg.get("auto_disable_threshold", 10),
+        )
         scheduler.error_window_seconds = pipeline_cfg.get("error_window_seconds", 60)
         scheduler.cooldown_seconds = pipeline_cfg.get("cooldown_seconds", 300)
         logger.info("PipelineEngine 설정 재적용 완료")
@@ -314,22 +316,50 @@ def apply_bundle_to_components(
         )
         logger.info("StreamManager 전역 설정 재적용 완료")
 
-    # 4) Streams 재적용 (변경된 스트림만 처리)
+    # 4) Streams 재적용 (변경 감지 시 재시작)
+    restart_streams_on_change = _str_to_bool(
+        os.getenv("STREAM_RESTART_ON_CHANGE"), default=True
+    )
+
     if streams_cfg:
-        active_streams = {s.stream_id for s in stream_manager.get_active_streams()}
+        active_states = {s.stream_id: s for s in stream_manager.get_active_streams()}
         new_enabled_streams = {s.stream_id for s in streams_cfg if getattr(s, "enabled", False)}
 
-        # 중지 필요 스트림
-        for stream_id in active_streams - new_enabled_streams:
+        # 비활성화된 스트림 중지
+        for stream_id in active_states.keys() - new_enabled_streams:
             try:
                 stream_manager.stop_stream(stream_id)
                 logger.info(f"스트림 중지: {stream_id}")
             except Exception as e:
                 logger.error(f"스트림 중지 실패: {stream_id} - {e}", stream_id=stream_id, error=str(e))
 
-        # 새롭게 활성화 또는 기존 활성 유지 (재시작 없음)
+        # 활성 스트림 재시작 필요 여부 판단
         for stream_config in streams_cfg:
-            if getattr(stream_config, "enabled", False) and stream_config.stream_id not in active_streams:
+            if not getattr(stream_config, "enabled", False):
+                continue
+            current_state = active_states.get(stream_config.stream_id)
+            needs_restart = False
+            if current_state:
+                cfg = current_state.config
+                if (
+                    cfg.max_fps != stream_config.max_fps
+                    or cfg.downscale != stream_config.downscale
+                    or cfg.rtsp_url != stream_config.rtsp_url
+                    or cfg.output_url != stream_config.output_url
+                ):
+                    needs_restart = True
+
+            if current_state is None or (needs_restart and restart_streams_on_change):
+                if needs_restart and restart_streams_on_change:
+                    try:
+                        stream_manager.stop_stream(stream_config.stream_id, force=True)
+                        logger.info(f"스트림 재시작(설정 변경): {stream_config.stream_id}")
+                    except Exception as e:
+                        logger.error(
+                            f"스트림 중지 실패(재시작): {stream_config.stream_id} - {e}",
+                            stream_id=stream_config.stream_id,
+                            error=str(e),
+                        )
                 try:
                     stream_manager.start_stream(
                         stream_id=stream_config.stream_id,
@@ -338,13 +368,23 @@ def apply_bundle_to_components(
                         downscale=stream_config.downscale,
                         output_url=stream_config.output_url,
                     )
-                    logger.info(f"스트림 시작: {stream_config.stream_id}")
                 except Exception as e:
                     logger.error(
                         f"스트림 시작 실패: {stream_config.stream_id} - {e}",
                         stream_id=stream_config.stream_id,
                         error=str(e),
                     )
+
+    # 5) Observability 재적용 (로그 레벨만 즉시 반영)
+    if observability_cfg:
+        try:
+            from sentinel_pipeline.common.logging import configure_logging
+
+            log_level = observability_cfg.get("log_level", "INFO")
+            configure_logging(level=str(log_level).upper())
+            logger.info("Observability 설정 재적용 완료", log_level=log_level)
+        except Exception as e:
+            logger.warning("Observability 설정 재적용 실패", error=str(e))
 
     logger.info("설정 bundle 재적용 완료")
 

@@ -14,6 +14,8 @@ from enum import Enum
 
 from sentinel_pipeline.common.logging import get_logger
 from sentinel_pipeline.domain.models.event import Event
+import asyncio
+from sentinel_pipeline.interface.api.ws_bus import publish_event
 
 if TYPE_CHECKING:
     pass
@@ -242,6 +244,22 @@ class EventEmitter:
                             self._on_events_emitted(batch)
                         except Exception as e:
                             logger.error(f"이벤트 발행 콜백 오류: {e}")
+
+                    # WS 브로드캐스트 (요약 전송)
+                    try:
+                        asyncio.create_task(
+                            publish_event(
+                                {
+                                    "count": len(batch),
+                                    "types": [e.type.value for e in batch],
+                                    "stream_id": getattr(batch[0], "stream_id", None),
+                                    "module": getattr(batch[0], "module_name", None),
+                                    "ts": time.time(),
+                                }
+                            )
+                        )
+                    except RuntimeError:
+                        logger.debug("WS loop not running; skip event broadcast")
                     
                     # 전송
                     if self._sync_transport:

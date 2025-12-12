@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from sentinel_pipeline.common.errors import SentinelError
 from sentinel_pipeline.common.logging import get_logger
-from sentinel_pipeline.interface.api.routes import config, health, streams
+from sentinel_pipeline.interface.api.routes import admin_ws, config, health, metrics, streams
 
 logger = get_logger(__name__)
 
@@ -78,11 +78,8 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(streams.router)
     app.include_router(config.router)
-
-    # /metrics placeholder (Prometheus 통합 전)
-    @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
-    async def metrics_placeholder() -> str:
-        return "# metrics endpoint not yet implemented\n"
+    app.include_router(metrics.router)
+    app.include_router(admin_ws.router)
 
     return app
 

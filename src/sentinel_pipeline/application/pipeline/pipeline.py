@@ -82,6 +82,7 @@ class PipelineEngine:
         self._total_frames = 0
         self._total_events = 0
         self._start_time: float | None = None
+        self._stats_task_started = False
     
     def register_module(self, module: ModuleBase) -> None:
         """
@@ -298,6 +299,29 @@ class PipelineEngine:
             "uptime_seconds": round(uptime, 1),
             "modules": self.get_module_stats(),
         }
+
+    def start_stats_publisher(self, interval_sec: float = 5.0) -> None:
+        """모듈 통계를 주기적으로 WS로 전송합니다."""
+        if self._stats_task_started:
+            return
+        self._stats_task_started = True
+
+        async def _loop():
+            from sentinel_pipeline.interface.api.ws_bus import publish_module_stats
+
+            while True:
+                stats = self.get_module_stats()
+                payload = {"modules": stats, "ts": time.time()}
+                try:
+                    await publish_module_stats(payload)
+                except Exception as e:
+                    logger.debug("module_stats publish failed", error=str(e))
+                await asyncio.sleep(interval_sec)
+
+        try:
+            asyncio.create_task(_loop())
+        except RuntimeError:
+            logger.debug("event loop not running; module_stats publisher not started")
     
     def shutdown(self) -> None:
         """파이프라인을 종료합니다."""
