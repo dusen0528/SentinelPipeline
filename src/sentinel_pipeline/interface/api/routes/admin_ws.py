@@ -27,10 +27,12 @@ async def _auth_ws(ws: WebSocket) -> bool:
     2) 없으면 ADMIN_WS_USER/PASSWORD가 설정된 경우 Basic Auth 검증
     3) 둘 다 없으면 인증을 생략
     """
+    # 1) API Key: query param token 또는 X-API-Key 헤더
+    token = ws.query_params.get("token")
     api_key = os.getenv("ADMIN_WS_API_KEY")
     if api_key:
         hdr = ws.headers.get("x-api-key")
-        if hdr != api_key:
+        if (hdr or token) != api_key:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION)
             return False
         return True

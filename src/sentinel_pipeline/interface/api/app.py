@@ -16,7 +16,9 @@ from pydantic import ValidationError
 
 from sentinel_pipeline.common.errors import SentinelError
 from sentinel_pipeline.common.logging import get_logger
-from sentinel_pipeline.interface.api.routes import admin_ws, config, health, metrics, streams
+from sentinel_pipeline.interface.api.routes import admin_ws, config, health, metrics, streams, dashboard
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 logger = get_logger(__name__)
 
@@ -80,6 +82,12 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
     app.include_router(config.router)
     app.include_router(metrics.router)
     app.include_router(admin_ws.router)
+    app.include_router(dashboard.router)
+
+    # 정적 파일 서빙 (대시보드)
+    static_dir = Path(__file__).resolve().parent / "static"
+    if static_dir.exists():
+        app.mount("/admin/static", StaticFiles(directory=static_dir), name="admin-static")
 
     return app
 

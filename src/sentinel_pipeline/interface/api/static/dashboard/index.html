@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>SentinelPipeline Admin Dashboard</title>
+  <link rel="stylesheet" href="/admin/static/dashboard/style.css" />
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1>SentinelPipeline Admin Dashboard</h1>
+      <div class="controls">
+        <input id="wsUrl" type="text" size="48" placeholder="ws://localhost:8000/ws/admin" />
+        <input id="token" type="text" size="20" placeholder="API Key (token 쿼리)" />
+        <button onclick="connect()">Connect</button>
+        <span id="status" class="status-pill disconnected">disconnected</span>
+      </div>
+    </div>
+    <small>인증: ADMIN_WS_API_KEY 설정 시 token 쿼리로 전달. Basic Auth 사용 시 브라우저 팝업 입력. 미설정 시 무인증.</small>
+
+    <div class="container">
+      <div class="card">
+        <h2>Streams</h2>
+        <table id="streams">
+          <thead><tr><th>ID</th><th>Status</th><th>FPS</th><th>Errors</th><th>Last Frame TS</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Modules</h2>
+        <table id="modules">
+          <thead><tr><th>Name</th><th>Success</th><th>Errors</th><th>Timeouts</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Recent Events</h2>
+        <ul id="events"></ul>
+      </div>
+    </div>
+
+    <script src="/admin/static/dashboard/app.js"></script>
+  </div>
+</body>
+</html>
+
