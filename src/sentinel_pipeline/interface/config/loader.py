@@ -141,6 +141,8 @@ class ConfigLoader:
             errors.append("pipeline.max_workers는 1 이상이어야 합니다")
         if config.pipeline.max_consecutive_errors < 1:
             errors.append("pipeline.max_consecutive_errors는 1 이상이어야 합니다")
+        if config.pipeline.max_consecutive_timeouts < 1:
+            errors.append("pipeline.max_consecutive_timeouts는 1 이상이어야 합니다")
 
         return (len(errors) == 0), errors
 

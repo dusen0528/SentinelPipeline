@@ -116,8 +116,9 @@ class PipelineConfig(BaseModel):
 
     max_workers: int = Field(4, description="모듈 실행 스레드 풀 크기")
     max_consecutive_errors: int = Field(5, description="연속 오류 임계값")
+    max_consecutive_timeouts: int = Field(10, description="연속 타임아웃 임계값")
     error_window_seconds: int = Field(60, description="에러 윈도우 (초)")
-    auto_disable_threshold: int = Field(10, description="자동 비활성화 임계값")
+    auto_disable_threshold: int = Field(10, description="자동 비활성화 임계값(레거시, 추후 제거 예정)")
     cooldown_seconds: int = Field(300, description="재활성화 대기 (초)")
 
     @model_validator(mode="after")
@@ -126,6 +127,8 @@ class PipelineConfig(BaseModel):
             raise ValueError("max_workers는 1 이상이어야 합니다")
         if self.max_consecutive_errors < 1:
             raise ValueError("max_consecutive_errors는 1 이상이어야 합니다")
+        if self.max_consecutive_timeouts < 1:
+            raise ValueError("max_consecutive_timeouts는 1 이상이어야 합니다")
         if self.error_window_seconds < 1:
             raise ValueError("error_window_seconds는 1 이상이어야 합니다")
         if self.auto_disable_threshold < 1:

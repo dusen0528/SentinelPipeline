@@ -70,6 +70,7 @@
   "pipeline": {
     "max_workers": 4,
     "max_consecutive_errors": 5,
+    "max_consecutive_timeouts": 10,
     "error_window_seconds": 60,
     "auto_disable_threshold": 10,
     "cooldown_seconds": 300
