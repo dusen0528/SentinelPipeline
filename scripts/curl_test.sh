@@ -28,17 +28,17 @@ PY
 
   # stream_update
   curl -s -X POST "$BASE_URL/admin/debug/broadcast" \
-    -H "Content-Type: application/json" "${AUTH_HEADER[@]}" \
+  -H "Content-Type: application/json" "${AUTH_HEADER[@]}" \
     -d "{\"kind\":\"stream_update\",\"payload\":{\"stream_id\":\"$stream_id\",\"status\":\"RUNNING\",\"fps\":$fps,\"error_count\":$err,\"last_frame_ts\":$ts}}" >/dev/null
 
   # module_stats
   curl -s -X POST "$BASE_URL/admin/debug/broadcast" \
-    -H "Content-Type: application/json" "${AUTH_HEADER[@]}" \
+  -H "Content-Type: application/json" "${AUTH_HEADER[@]}" \
     -d "{\"kind\":\"module_stats\",\"payload\":{\"modules\":{\"$module_name\":{\"success_count\":$((10+seq)) ,\"error_count\":$err,\"timeout_count\":$timeouts}},\"ts\":$ts}}" >/dev/null
 
   # event
   curl -s -X POST "$BASE_URL/admin/debug/broadcast" \
-    -H "Content-Type: application/json" "${AUTH_HEADER[@]}" \
+  -H "Content-Type: application/json" "${AUTH_HEADER[@]}" \
     -d "{\"kind\":\"event\",\"payload\":{\"type\":\"event\",\"stream_id\":\"$stream_id\",\"module\":\"$module_name\",\"ts\":$ts,\"count\":1,\"types\":[\"CUSTOM\"]}}" >/dev/null
 
   echo "sent seq=$seq fps=$fps err=$err timeout=$timeouts ts=$ts"

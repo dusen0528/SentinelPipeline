@@ -1,18 +1,18 @@
 """
-FastAPI 의존성 주입 헬퍼
+FastAPI dependency wiring.
 
-Interface 계층에서만 외부 라이브러리(FastAPI, Pydantic)에 의존합니다.
-실제 인스턴스는 Composition Root(main.py)에서 set_app_context로 주입합니다.
+Interface 계층에서 사용할 의존성을 관리합니다.
+Composition Root(main.py)에서 set_app_context로 주입합니다.
 """
 
 from __future__ import annotations
 
 import os
 import secrets
-from functools import lru_cache
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Callable
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from sentinel_pipeline.application.config.manager import ConfigManager
@@ -21,69 +21,55 @@ from sentinel_pipeline.application.pipeline.pipeline import PipelineEngine
 from sentinel_pipeline.application.stream.manager import StreamManager
 from sentinel_pipeline.interface.config.loader import ConfigLoader
 
-_stream_manager: Optional[StreamManager] = None
-_pipeline_engine: Optional[PipelineEngine] = None
-_config_manager: Optional[ConfigManager] = None
-_config_loader: Optional[ConfigLoader] = None
-_event_emitter: Optional[EventEmitter] = None
+
+@dataclass
+class AppContext:
+    stream_manager: StreamManager
+    pipeline_engine: PipelineEngine
+    config_manager: ConfigManager
+    config_loader: ConfigLoader
+    event_emitter: EventEmitter
+    transport_close_funcs: list[Callable[[], None]] = field(default_factory=list)
+
 
 security = HTTPBasic()
 
 
-def set_app_context(
-    stream_manager: StreamManager,
-    pipeline_engine: PipelineEngine,
-    config_manager: ConfigManager,
-    config_loader: ConfigLoader,
-    event_emitter: EventEmitter,
-) -> None:
-    """애플리케이션 의존성을 주입합니다."""
-    global _stream_manager, _pipeline_engine, _config_manager, _config_loader, _event_emitter
-    _stream_manager = stream_manager
-    _pipeline_engine = pipeline_engine
-    _config_manager = config_manager
-    _config_loader = config_loader
-    _event_emitter = event_emitter
+def set_app_context(app: FastAPI, context: AppContext) -> None:
+    """FastAPI app.state에 AppContext를 저장합니다"""
+    app.state.app_context = context
 
 
-@lru_cache(maxsize=1)
-def get_stream_manager() -> StreamManager:
-    if _stream_manager is None:
-        raise RuntimeError("StreamManager가 설정되지 않았습니다")
-    return _stream_manager
+def get_app_context(request: Request) -> AppContext:
+    context: AppContext | None = getattr(request.app.state, "app_context", None)
+    if context is None:
+        raise RuntimeError("AppContext가 설정되지 않았습니다")
+    return context
 
 
-@lru_cache(maxsize=1)
-def get_pipeline_engine() -> PipelineEngine:
-    if _pipeline_engine is None:
-        raise RuntimeError("PipelineEngine이 설정되지 않았습니다")
-    return _pipeline_engine
+def get_stream_manager(context: AppContext = Depends(get_app_context)) -> StreamManager:
+    return context.stream_manager
 
 
-@lru_cache(maxsize=1)
-def get_config_manager() -> ConfigManager:
-    if _config_manager is None:
-        raise RuntimeError("ConfigManager가 설정되지 않았습니다")
-    return _config_manager
+def get_pipeline_engine(context: AppContext = Depends(get_app_context)) -> PipelineEngine:
+    return context.pipeline_engine
 
 
-@lru_cache(maxsize=1)
-def get_config_loader() -> ConfigLoader:
-    if _config_loader is None:
-        raise RuntimeError("ConfigLoader가 설정되지 않았습니다")
-    return _config_loader
+def get_config_manager(context: AppContext = Depends(get_app_context)) -> ConfigManager:
+    return context.config_manager
 
 
-@lru_cache(maxsize=1)
-def get_event_emitter() -> EventEmitter:
-    if _event_emitter is None:
-        raise RuntimeError("EventEmitter가 설정되지 않았습니다")
-    return _event_emitter
+def get_config_loader(context: AppContext = Depends(get_app_context)) -> ConfigLoader:
+    return context.config_loader
+
+
+def get_event_emitter(context: AppContext = Depends(get_app_context)) -> EventEmitter:
+    return context.event_emitter
 
 
 async def verify_api_key(x_api_key: str = Header(default=None)) -> None:
     """
-    API Key 검증 (선택적).
+    API Key 검증입니다.
     환경변수 API_KEY가 설정된 경우에만 검증합니다.
     """
     expected = os.getenv("API_KEY")
@@ -104,7 +90,7 @@ async def verify_admin(credentials: HTTPBasicCredentials = Depends(security)) ->
     admin_password = os.getenv("ADMIN_PASSWORD")
 
     if admin_password is None:
-        # 설정되지 않았다면 인증을 요구하지 않음
+        # 설정되지 않으면 인증을 요구하지 않음
         return
 
     user_ok = secrets.compare_digest(credentials.username, admin_user)
@@ -115,4 +101,3 @@ async def verify_admin(credentials: HTTPBasicCredentials = Depends(security)) ->
             detail="Unauthorized",
             headers={"WWW-Authenticate": "Basic"},
         )
-

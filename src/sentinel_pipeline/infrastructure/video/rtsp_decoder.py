@@ -9,16 +9,14 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 from sentinel_pipeline.common.errors import ErrorCode, StreamError
 from sentinel_pipeline.common.logging import get_logger
-
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
 
 
 # 프레임 타입 정의

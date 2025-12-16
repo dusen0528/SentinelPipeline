@@ -11,16 +11,20 @@ services:
     ports:
       - "9000:9000"
     restart: always
+    environment:
+      - PORT=9000
+      - HOST=0.0.0.0
     deploy:
       resources:
         limits:
           cpus: "4"
           memory: "6G"
 
-  flashphoner:
-    image: flashphoner/webcallserver:latest
-    container_name: flashphoner
-    ports:
-      - "1935:1935"
-      - "8443:8443"
-    restart: always
+  # Flashphoner는 선택사항입니다. 다른 곳에서 실행 중이면 주석 처리하세요.
+  # flashphoner:
+  #   image: flashphoner/webcallserver:latest
+  #   container_name: flashphoner
+  #   ports:
+  #     - "1935:1935"
+  #     - "8443:8443"
+  #   restart: always

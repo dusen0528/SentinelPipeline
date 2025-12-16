@@ -92,7 +92,6 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
     app.include_router(admin_ws.router)
     app.include_router(admin_debug.router)
     app.include_router(dashboard.router)
-    app.include_router(admin_debug.router)
 
     # 정적 파일 서빙 (대시보드)
     static_dir = Path(__file__).resolve().parent / "static"
@@ -100,4 +99,3 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
         app.mount("/admin/static", StaticFiles(directory=static_dir), name="admin-static")
 
     return app
-
