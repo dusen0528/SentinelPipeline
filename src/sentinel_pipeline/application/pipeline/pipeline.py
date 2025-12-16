@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import threading
 from typing import TYPE_CHECKING, Any, Callable
@@ -319,9 +320,12 @@ class PipelineEngine:
                 await asyncio.sleep(interval_sec)
 
         try:
-            asyncio.create_task(_loop())
+            # 실행 중인 이벤트 루프가 있는지 확인
+            loop = asyncio.get_running_loop()
+            loop.create_task(_loop())
         except RuntimeError:
-            logger.debug("event loop not running; module_stats publisher not started")
+            # 이벤트 루프가 없으면 나중에 FastAPI가 시작되면 자동으로 시작됨
+            logger.debug("event loop not running; module_stats publisher will start when FastAPI starts")
     
     def shutdown(self) -> None:
         """파이프라인을 종료합니다."""

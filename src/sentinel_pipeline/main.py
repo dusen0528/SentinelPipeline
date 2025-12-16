@@ -457,18 +457,22 @@ def main() -> None:
             _event_emitter,
         ) = initialize_components(config_path)
         
+        # FastAPI 앱 생성
+        allowed_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else None
+        app = create_app(allowed_origins=allowed_origins)
+        
         # DI 컨텍스트 설정
-        set_app_context(
+        from sentinel_pipeline.interface.api.dependencies import AppContext
+        
+        app_context = AppContext(
             stream_manager=_stream_manager,
             pipeline_engine=_pipeline_engine,
             config_manager=config_manager,
             config_loader=config_loader,
             event_emitter=_event_emitter,
+            transport_close_funcs=_transport_close_funcs,
         )
-        
-        # FastAPI 앱 생성
-        allowed_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else None
-        app = create_app(allowed_origins=allowed_origins)
+        set_app_context(app, app_context)
         
         # 서버 시작
         host = os.getenv("HOST", "0.0.0.0")

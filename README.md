@@ -13,6 +13,106 @@
 
 ![계층별 설명](docs/imgae/image3.png)
 
+---
+
+## 설치 및 실행
+
+### 사전 요구사항
+
+- Python 3.10 이상
+- [uv](https://github.com/astral-sh/uv) 패키지 매니저 (또는 pip)
+- FFmpeg (비디오 처리용)
+- Docker 및 Docker Compose (선택사항)
+
+### 방법 1: Docker Compose 사용 (권장)
+
+가장 간단한 실행 방법입니다:
+
+```bash
+# Docker Compose로 실행
+docker-compose up -d
+
+# 로그 확인
+docker-compose logs -f sentinel-pipeline
+
+# 중지
+docker-compose down
+```
+
+서버는 기본적으로 `http://localhost:9000`에서 실행됩니다.
+
+### 방법 2: 로컬에서 직접 실행
+
+1. **의존성 설치**
+
+```bash
+# uv 사용 시
+uv sync
+
+# 또는 pip 사용 시
+pip install -e .
+```
+
+2. **설정 파일 준비**
+
+`config.json` 파일이 이미 있는지 확인하세요. 없다면 `config.example.json`을 복사하여 수정하세요:
+
+```bash
+cp config.example.json config.json
+# config.json을 편집하여 RTSP URL, 모델 경로 등을 설정
+```
+
+3. **프로젝트 실행**
+
+```bash
+# 방법 A: uv run 사용 (권장)
+uv run python -m sentinel_pipeline.main
+
+# 방법 B: PYTHONPATH 설정 후 실행 (Windows)
+# Git Bash 또는 PowerShell에서
+export PYTHONPATH=src:$PYTHONPATH  # Git Bash
+# 또는
+$env:PYTHONPATH="src"  # PowerShell
+python -m sentinel_pipeline.main
+
+# 방법 C: src 디렉토리에서 직접 실행
+cd src
+python -m sentinel_pipeline.main
+```
+
+4. **환경 변수 설정 (선택사항)**
+
+**Linux/Mac (Git Bash 포함):**
+```bash
+# 설정 파일 경로 지정
+export CONFIG_PATH=config.json
+
+# 서버 호스트/포트 설정
+export HOST=0.0.0.0
+export PORT=8000
+
+# CORS 설정
+export CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+```
+
+**Windows PowerShell:**
+```powershell
+$env:CONFIG_PATH="config.json"
+$env:HOST="0.0.0.0"
+$env:PORT="8000"
+$env:CORS_ORIGINS="http://localhost:3000,http://localhost:8080"
+```
+
+서버는 기본적으로 `http://localhost:8000`에서 실행됩니다.
+
+### 접속 확인
+
+- API 서버: `http://localhost:8000` (또는 Docker 사용 시 `http://localhost:9000`)
+- 헬스 체크: `http://localhost:8000/health`
+- 관리자 대시보드: `http://localhost:8000/admin`
+- API 문서: `http://localhost:8000/docs`
+
+---
 
 ## REST API
 

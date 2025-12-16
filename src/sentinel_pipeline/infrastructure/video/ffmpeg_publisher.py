@@ -11,17 +11,14 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 from queue import Queue, Full, Empty
 from logging.handlers import RotatingFileHandler
 
 import numpy as np
+from numpy.typing import NDArray
 
 from sentinel_pipeline.common.errors import ErrorCode, TransportError
 from sentinel_pipeline.common.logging import get_logger
-
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
 
 
 # 프레임 타입 정의

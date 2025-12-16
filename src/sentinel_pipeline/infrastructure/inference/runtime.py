@@ -12,15 +12,13 @@ import time
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from sentinel_pipeline.common.errors import ErrorCode, InferenceError
 from sentinel_pipeline.common.logging import get_logger
-
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
 
 
 # 타입 정의
