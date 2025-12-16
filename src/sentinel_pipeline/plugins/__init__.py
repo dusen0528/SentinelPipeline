@@ -16,6 +16,9 @@ from sentinel_pipeline.common.logging import get_logger
 
 logger = get_logger(__name__)
 
+# FaceBlurModule은 별도 파일로 분리됨
+from sentinel_pipeline.plugins.face_blur_module import FaceBlurModule
+
 class BasePlugin:
     """기본 플러그인 베이스 (ModuleBase 구현)."""
 
@@ -136,71 +139,8 @@ class ScreamDetectModule(BasePlugin):
         return [], metadata_out
 
 
-class FaceBlurModule(BasePlugin):
-    name = "FaceBlurModule"
-    priority = 200
-    timeout_ms = 50
-
-    def process_frame(self, frame, metadata):
-        # 실제 블러링은 추후 구현, 현재는 통과
-        return frame, [], metadata
-
-    def __init__(
-        self,
-        model_path: str,
-        blur_kernel: int = 99,
-        confidence_threshold: float = 0.5,
-        min_face_size: int = 30,
-        use_tracker: bool = True,
-        tracker_max_age: int = 25,
-        tracker_smoothing: float = 0.5,
-        **kw: Any,
-    ) -> None:
-        super().__init__(
-            model_path=model_path,
-            blur_kernel=blur_kernel,
-            confidence_threshold=confidence_threshold,
-            min_face_size=min_face_size,
-            use_tracker=use_tracker,
-            tracker_max_age=tracker_max_age,
-            tracker_smoothing=tracker_smoothing,
-            **kw,
-        )
-        self.model_path = model_path
-        self.blur_kernel = int(blur_kernel)
-        self.confidence_threshold = float(confidence_threshold)
-        self.min_face_size = int(min_face_size)
-        self.use_tracker = bool(use_tracker)
-        self.tracker_max_age = int(tracker_max_age)
-        self.tracker_smoothing = float(tracker_smoothing)
-
-    @staticmethod
-    def validate_options(options: dict[str, Any]) -> None:
-        model_path = options.get("model_path")
-        if not model_path or not isinstance(model_path, str):
-            raise ValueError("FaceBlurModule.model_path는 필수 문자열입니다")
-        if not os.path.exists(model_path):
-            raise ValueError(f"FaceBlurModule.model_path 파일을 찾을 수 없습니다: {model_path}")
-
-        kernel = options.get("blur_kernel", 99)
-        if not isinstance(kernel, int) or kernel < 1:
-            raise ValueError("FaceBlurModule.blur_kernel은 1 이상의 정수여야 합니다")
-
-        conf = options.get("confidence_threshold", 0.5)
-        if not isinstance(conf, (int, float)) or not (0 <= conf <= 1):
-            raise ValueError("FaceBlurModule.confidence_threshold는 0~1 범위의 숫자여야 합니다")
-
-        min_face = options.get("min_face_size", 30)
-        if not isinstance(min_face, int) or min_face < 1:
-            raise ValueError("FaceBlurModule.min_face_size는 1 이상의 정수여야 합니다")
-
-        tracker_max_age = options.get("tracker_max_age", 25)
-        if not isinstance(tracker_max_age, int) or tracker_max_age < 0:
-            raise ValueError("FaceBlurModule.tracker_max_age는 0 이상 정수여야 합니다")
-
-        tracker_smoothing = options.get("tracker_smoothing", 0.5)
-        if not isinstance(tracker_smoothing, (int, float)) or not (0 <= tracker_smoothing <= 1):
-            raise ValueError("FaceBlurModule.tracker_smoothing은 0~1 범위의 숫자여야 합니다")
+# FaceBlurModule은 별도 파일로 분리됨
+from sentinel_pipeline.plugins.face_blur_module import FaceBlurModule
 
 
 PLUGIN_REGISTRY: Dict[str, Type[ModuleBase]] = {

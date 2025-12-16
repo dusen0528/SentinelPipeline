@@ -127,14 +127,14 @@ class StreamManager:
     
     def set_decoder_factory(
         self,
-        factory: Callable[[], DecoderProtocol],
+        factory: Callable[..., DecoderProtocol],
     ) -> None:
         """디코더 팩토리를 설정합니다."""
         self._decoder_factory = factory
     
     def set_publisher_factory(
         self,
-        factory: Callable[[], PublisherProtocol],
+        factory: Callable[..., PublisherProtocol],
     ) -> None:
         """퍼블리셔 팩토리를 설정합니다."""
         self._publisher_factory = factory
@@ -185,11 +185,15 @@ class StreamManager:
                     )
             
             # 설정 생성
+            downscale = kwargs.get("downscale", self._global_downscale)
+            if downscale is None:
+                downscale = self._global_downscale
+
             config = StreamConfig(
                 stream_id=stream_id,
                 rtsp_url=rtsp_url,
                 max_fps=kwargs.get("max_fps", self._global_max_fps),
-                downscale=kwargs.get("downscale", self._global_downscale),
+                downscale=downscale,
                 output_url=kwargs.get("output_url"),
             )
             
@@ -335,7 +339,11 @@ class StreamManager:
         try:
             # 디코더 생성 및 연결
             if self._decoder_factory:
-                ctx.decoder = self._decoder_factory()
+                # 팩토리가 stream_id를 받도록 시도, 아니면 무인자 호출
+                try:
+                    ctx.decoder = self._decoder_factory(stream_id)
+                except TypeError:
+                    ctx.decoder = self._decoder_factory()
                 if not ctx.decoder.connect(config.rtsp_url):
                     raise StreamError(
                         ErrorCode.STREAM_CONNECTION_FAILED,
@@ -346,6 +354,37 @@ class StreamManager:
                 logger.warning(f"디코더 팩토리 미설정: {stream_id}", stream_id=stream_id)
                 ctx.state.set_status(StreamStatus.ERROR, "디코더 팩토리 미설정")
                 return
+            
+            # 퍼블리셔 생성 및 시작 (출력 URL이 설정된 경우)
+            if self._publisher_factory and config.output_enabled and config.output_url:
+                try:
+                    pub_fps = int(config.max_fps or ctx.decoder.fps or 25)
+                    width = ctx.decoder.width
+                    height = ctx.decoder.height
+
+                    # 팩토리가 인자를 받도록 시도, 아니면 무인자 호출 후 start()는 이미 init에서 처리된다고 가정
+                    try:
+                        ctx.publisher = self._publisher_factory(
+                            stream_id, config.output_url, width, height, pub_fps
+                        )  # type: ignore[arg-type]
+                    except TypeError:
+                        ctx.publisher = self._publisher_factory()  # type: ignore[call-arg]
+
+                    # 퍼블리셔 시작 (FFmpeg 프로세스 기동)
+                    ctx.publisher.start()
+                    logger.info(
+                        f"퍼블리셔 시작: {stream_id} -> {config.output_url} "
+                        f"({width}x{height}@{pub_fps})",
+                        stream_id=stream_id,
+                        output_url=config.output_url,
+                    )
+                except Exception as e:  # 시작 실패 시 스트림 오류 처리
+                    logger.error(
+                        f"퍼블리셔 시작 실패: {stream_id} - {e}",
+                        stream_id=stream_id,
+                        error=str(e),
+                    )
+                    raise
             
             # 상태 업데이트
             ctx.state.set_status(StreamStatus.RUNNING)
@@ -565,4 +604,3 @@ class StreamManager:
                     for stream_id, ctx in self._streams.items()
                 },
             }
-

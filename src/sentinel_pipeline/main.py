@@ -203,11 +203,24 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
     )
     
     # 디코더/퍼블리셔 팩토리 설정
-    def create_decoder():
-        return RTSPDecoder()
+    def create_decoder(stream_id: str | None = None):
+        return RTSPDecoder(stream_id=stream_id or "unknown")
     
-    def create_publisher():
-        return FFmpegPublisher()
+    def create_publisher(
+        stream_id: str | None = None,
+        output_url: str | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        fps: int | None = None,
+    ):
+        # 필수값이 없으면 기본값을 채우되, 호출 시점에 전달된 값을 우선 사용
+        return FFmpegPublisher(
+            stream_id=stream_id or "unknown",
+            output_url=output_url or "rtsp://localhost:8554/unknown",
+            width=width or 640,
+            height=height or 480,
+            fps=fps or 15,
+        )
     
     stream_manager.set_decoder_factory(create_decoder)
     stream_manager.set_publisher_factory(create_publisher)
@@ -498,4 +511,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,92 +1,299 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <title>SentinelPipeline Admin Dashboard</title>
-  <link rel="stylesheet" href="/admin/static/dashboard/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@9.1.1/dist/gridstack.min.css" />
-  <script src="https://cdn.jsdelivr.net/npm/gridstack@9.1.1/dist/gridstack-all.js"></script>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>SentinelPipeline Dashboard</title>
+    <link rel="icon" type="image/png" href="/admin/static/dashboard/favicon.png">
+    
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+    
+    <!-- Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            DEFAULT: '#0f766e', // Teal 700
+                            light: '#14b8a6',   // Teal 500
+                            bg: '#f0fdfa',      // Teal 50
+                            hover: '#115e59',   // Teal 800
+                        },
+                        gray: {
+                            50: '#f9fafb', 100: '#f3f4f6', 200: '#e5e7eb', 300: '#d1d5db',
+                            400: '#9ca3af', 500: '#6b7280', 600: '#4b5563', 700: '#374151',
+                            800: '#1f2937', 900: '#111827',
+                        }
+                    },
+                    boxShadow: {
+                        'card': '0 0 0 1px rgba(0,0,0,0.03), 0 2px 8px rgba(0,0,0,0.04)',
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.3s ease-out forwards',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/admin/static/dashboard/style.css">
 </head>
-<body>
-  <div class="page">
-    <div class="header top-bar">
-      <div class="heading">
-        <p class="eyebrow">SentinelPipeline</p>
-        <h1>Admin Dashboard</h1>
-        <small class="auth-hint">인증: ADMIN_WS_API_KEY 설정 시 token 쿼리로 전달. Basic Auth 사용 시 브라우저 팝업 입력. 미설정 시 무인증.</small>
-      </div>
-      <div class="controls">
-        <label class="field">
-          <span>WebSocket URL</span>
-          <input id="wsUrl" type="text" placeholder="ws://localhost:8000/ws/admin" />
-        </label>
-        <label class="field">
-          <span>Token</span>
-          <input id="token" type="text" placeholder="API Key (token 쿼리)" />
-        </label>
-        <div class="actions">
-          <button onclick="connect()">Connect</button>
-          <span id="status" class="status-pill disconnected">Disconnected</span>
+<body class="bg-gray-50 text-gray-700 font-sans min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <header class="h-16 border-b border-gray-200 glass-header sticky top-0 z-40 transition-all duration-300">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-brand text-white flex items-center justify-center shadow-lg shadow-teal-700/20 hover:scale-105 transition duration-300">
+                    <span class="material-symbols-outlined">visibility</span>
+                </div>
+                <div class="flex flex-col">
+                    <h1 class="text-lg font-bold tracking-tight text-gray-900 leading-none">Sentinel<span class="text-brand-light">Pipeline</span></h1>
+                    <span class="text-[10px] text-gray-400 font-medium tracking-wider uppercase">Integrated Dashboard</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="hidden sm:flex items-center gap-2 text-xs text-green-700 bg-green-50 px-3 py-1.5 rounded-full border border-green-100 font-bold shadow-sm">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    System Online
+                </div>
+                <button class="w-9 h-9 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition">
+                    <span class="material-symbols-outlined">notifications</span>
+                </button>
+            </div>
         </div>
-      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
+        
+        <!-- Stats Overview -->
+        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            <!-- Total Streams -->
+            <div class="bg-white rounded-2xl p-5 shadow-card border border-gray-100 relative overflow-hidden group hover:shadow-lg transition duration-300">
+                <div class="absolute -right-4 -top-4 w-24 h-24 bg-gray-50 rounded-full group-hover:bg-gray-100 transition-colors"></div>
+                <div class="relative z-10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-gray-400 text-lg">videocam</span>
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Streams</h3>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-bold text-gray-900 font-mono tracking-tight stat-value" id="stat-total">0</span>
+                        <span class="text-xs text-gray-400 font-medium">cameras</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Streams -->
+            <div class="bg-white rounded-2xl p-5 shadow-card border border-gray-100 relative overflow-hidden group hover:shadow-lg transition duration-300">
+                <div class="absolute -right-4 -top-4 w-24 h-24 bg-brand-bg rounded-full group-hover:bg-teal-100 transition-colors"></div>
+                <div class="relative z-10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-brand-light text-lg">play_circle</span>
+                        <h3 class="text-xs font-bold text-brand uppercase tracking-wider">Active</h3>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-bold text-brand font-mono tracking-tight stat-value" id="stat-running">0</span>
+                        <span class="text-xs text-brand/70 font-medium">streaming</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Load -->
+            <div class="bg-white rounded-2xl p-5 shadow-card border border-gray-100 hover:shadow-lg transition duration-300 flex flex-col justify-between">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="material-symbols-outlined text-gray-400 text-lg">memory</span>
+                    <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">System Load</h3>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-[10px] font-bold text-gray-500 mb-1 uppercase">
+                            <span>System CPU</span>
+                            <span class="font-mono text-gray-900" id="stat-cpu">0%</span>
+                        </div>
+                        <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-500 shadow-sm" id="bar-cpu" style="width: 0%;"></div>
+                        </div>
+                        <div class="flex justify-between text-[9px] text-gray-400 mt-0.5">
+                            <span>Process: <span id="stat-process-cpu" class="font-mono">0%</span></span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-[10px] font-bold text-gray-500 mb-1 uppercase">
+                            <span>System Memory</span>
+                            <span class="font-mono text-gray-900" id="stat-mem">0 / 0 MB</span>
+                        </div>
+                        <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-purple-500 h-1.5 rounded-full transition-all duration-500 shadow-sm" id="bar-mem" style="width: 0%;"></div>
+                        </div>
+                        <div class="flex justify-between text-[9px] text-gray-400 mt-0.5">
+                            <span>Process: <span id="stat-process-mem" class="font-mono">0 MB</span></span>
+                            <span id="stat-mem-percent" class="font-mono">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance -->
+            <div class="bg-white rounded-2xl p-5 shadow-card border border-gray-100 hover:shadow-lg transition duration-300">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-symbols-outlined text-gray-400 text-lg">speed</span>
+                    <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Performance</h3>
+                </div>
+                <div class="flex items-center justify-between mt-3">
+                    <div>
+                        <span class="text-3xl font-bold text-gray-900 font-mono tracking-tight stat-value" id="stat-fps">0.0</span>
+                        <span class="text-xs text-gray-400 font-medium block">Avg FPS</span>
+                    </div>
+                    <div class="text-right">
+                        <div class="flex items-center gap-1 justify-end text-green-600 bg-green-50 px-2 py-0.5 rounded-md border border-green-100">
+                            <span class="material-symbols-outlined text-sm">check_circle</span>
+                            <span class="text-xs font-bold">Ready</span>
+                        </div>
+                        <span class="text-xs text-gray-400 font-medium block mt-1">AI Model</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Toolbar -->
+        <section class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2 px-2">
+                <span class="material-symbols-outlined text-brand-light">grid_view</span>
+                Live Feeds
+            </h2>
+            <div class="flex gap-3 w-full sm:w-auto">
+                <div class="relative flex-1 sm:flex-none group">
+                    <span class="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 text-sm group-focus-within:text-brand transition">search</span>
+                    <input type="text" id="search-input" placeholder="Search cameras..." class="w-full sm:w-64 bg-gray-50 border border-gray-200 text-sm text-gray-900 rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand focus:bg-white transition placeholder-gray-400 shadow-sm">
+                </div>
+                <button onclick="openModal()" class="flex items-center gap-2 bg-brand hover:bg-brand-hover text-white text-sm font-bold px-5 py-2.5 rounded-xl transition shadow-lg shadow-teal-700/20 active:scale-95 transform">
+                    <span class="material-symbols-outlined text-sm">add</span>
+                    <span>New Stream</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Stream Grid -->
+        <section id="stream-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-20">
+            <!-- Stream cards will be rendered here by JavaScript -->
+        </section>
+    </main>
+
+    <!-- Modal -->
+    <div id="stream-modal" class="fixed inset-0 z-50 hidden transition-opacity duration-300">
+        <div class="absolute inset-0 bg-gray-900/30 backdrop-blur-sm transition-opacity" onclick="closeModal()"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-4">
+            <div class="bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100 animate-fade-in ring-1 ring-black/5">
+                <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/80">
+                    <h3 id="modal-title" class="text-lg font-bold text-gray-900">New Stream</h3>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1 rounded-lg transition">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <form id="stream-form" class="p-6 space-y-5">
+                    <input type="hidden" id="edit-id">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Camera Name</label>
+                        <input type="text" id="input-name" required class="w-full bg-white border border-gray-200 rounded-lg px-4 py-2.5 text-gray-900 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none transition text-sm shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Input RTSP URL</label>
+                        <div class="flex shadow-sm rounded-lg">
+                            <span class="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-gray-200 bg-gray-50 text-gray-500 text-xs font-mono font-bold select-none">rtsp://</span>
+                            <input type="text" id="input-source" required class="flex-1 bg-white border border-gray-200 rounded-r-lg px-4 py-2.5 text-gray-900 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none transition text-sm font-mono placeholder-gray-300">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Output URL <span class="text-gray-400 font-normal normal-case">(Optional)</span></label>
+                        <input type="text" id="input-output" placeholder="Auto-generated if empty" class="w-full bg-white border border-gray-200 rounded-lg px-4 py-2.5 text-gray-900 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none transition text-sm font-mono placeholder-gray-300 shadow-sm">
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                        <p class="text-xs font-bold text-brand mb-4 uppercase tracking-wide flex items-center gap-1">
+                            <span class="material-symbols-outlined text-sm">settings</span> Performance Settings
+                        </p>
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1.5 font-bold">Max FPS</label>
+                                <input type="number" id="input-max-fps" min="1" max="60" value="30" class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:border-brand outline-none text-sm shadow-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1.5 font-bold">Downscale</label>
+                                <input type="number" id="input-downscale" min="0.1" max="1.0" step="0.1" value="1.0" class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:border-brand outline-none text-sm shadow-sm">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                        <p class="text-xs font-bold text-brand mb-4 uppercase tracking-wide flex items-center gap-1">
+                            <span class="material-symbols-outlined text-sm">enhanced_encryption</span> Privacy & Settings
+                        </p>
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1.5 font-bold">Method</label>
+                                <div class="relative">
+                                    <select id="input-method" class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:border-brand outline-none appearance-none text-sm shadow-sm cursor-pointer">
+                                        <option value="pixelate" selected>Pixelate</option>
+                                        <option value="blur">Gaussian Blur</option>
+                                        <option value="mosaic">Mosaic</option>
+                                        <option value="solid">Solid Box</option>
+                                    </select>
+                                    <span class="material-symbols-outlined absolute right-2 top-2 text-gray-400 pointer-events-none text-sm">expand_more</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1.5 font-bold">Confidence</label>
+                                <input type="number" id="input-conf" min="0" max="1" step="0.05" value="0.15" class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:border-brand outline-none text-sm shadow-sm">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="flex justify-between text-xs text-gray-500 mb-2 font-bold">
+                                <span>Blur Strength</span>
+                                <span id="strength-val" class="text-brand font-bold bg-white px-2 py-0.5 rounded shadow-sm border border-gray-100 text-[10px]">31</span>
+                            </label>
+                            <input type="range" id="input-strength" min="1" max="50" value="31" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand">
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-gray-200">
+                            <label class="flex justify-between text-xs text-gray-500 mb-2 font-bold">
+                                <span>Skip Interval <span class="text-gray-400 font-normal normal-case">(성능 최적화)</span></span>
+                                <span id="skip-interval-val" class="text-brand font-bold bg-white px-2 py-0.5 rounded shadow-sm border border-gray-100 text-[10px]">1</span>
+                            </label>
+                            <input type="range" id="input-skip-interval" min="1" max="10" value="1" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand">
+                            <p class="text-[9px] text-gray-400 mt-1">N프레임마다 1번만 YOLO 추론 (1=모든 프레임, 높을수록 빠름)</p>
+                        </div>
+                    </div>
+                    <div class="pt-2 flex justify-end gap-3">
+                        <button type="button" onclick="closeModal()" class="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition">Cancel</button>
+                        <button type="submit" class="px-6 py-2.5 rounded-xl text-sm font-bold bg-brand hover:bg-brand-hover text-white shadow-lg shadow-teal-700/20 transition transform active:scale-95">Save Stream</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
-    <div class="grid-stack">
-      <div class="grid-stack-item" data-gs-id="streams" gs-x="0" gs-y="0" gs-w="6" gs-h="4">
-        <div class="grid-stack-item-content card">
-          <h2>Streams</h2>
-          <div class="table-wrap">
-            <table id="streams">
-              <thead><tr><th>ID</th><th>Status</th><th>FPS</th><th>Errors</th><th>Last Frame TS</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none"></div>
 
-      <div class="grid-stack-item" data-gs-id="modules" gs-x="6" gs-y="0" gs-w="6" gs-h="4">
-        <div class="grid-stack-item-content card">
-          <h2>Modules</h2>
-          <div class="table-wrap">
-            <table id="modules">
-              <thead><tr><th>Name</th><th>Success</th><th>Errors</th><th>Timeouts</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid-stack-item" data-gs-id="events" gs-x="0" gs-y="4" gs-w="6" gs-h="4">
-        <div class="grid-stack-item-content card">
-          <h2>Recent Events</h2>
-          <div class="table-wrap events-wrap">
-            <ul id="events"></ul>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid-stack-item" data-gs-id="streamChart" gs-x="6" gs-y="4" gs-w="6" gs-h="5">
-        <div class="grid-stack-item-content card">
-          <h2>Stream FPS</h2>
-          <div class="chart-container">
-            <canvas id="streamChart"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid-stack-item" data-gs-id="moduleChart" gs-x="6" gs-y="9" gs-w="6" gs-h="5">
-        <div class="grid-stack-item-content card">
-          <h2>Modules Throughput/Errors</h2>
-          <div class="chart-container">
-            <canvas id="moduleChart"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-
+    <!-- JavaScript -->
     <script src="/admin/static/dashboard/app.js"></script>
-  </div>
 </body>
 </html>
-

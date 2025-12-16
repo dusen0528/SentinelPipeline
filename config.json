@@ -25,9 +25,20 @@
         "name": "FaceBlurModule",
         "enabled": true,
         "priority": 200,
-        "timeout_ms": 25,
+        "timeout_ms": 100,
         "options": {
-          "blur_kernel": 99
+          "model_path": "models/yolov8n-face.pt",
+          "use_person_detection": false,
+          "confidence_threshold": 0.15,
+          "anonymize_method": "pixelate",
+          "pixelate_size": 10,
+          "blur_strength": 31,
+          "imgsz": 320,
+          "skip_interval": 3,
+          "max_age": 50,
+          "smoothing": 0.5,
+          "iou_threshold": 0.35,
+          "box_expand_ratio": 0.15
         }
       }
     ],

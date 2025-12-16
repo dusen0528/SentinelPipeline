@@ -3,8 +3,15 @@ __pycache__/
 .uv-cache/
 uv.lock
 .env
-models/*.onnx
-models/*.engine
+# Model files (too large for git)
+models/
+*.pt
+*.onnx
+*.engine
+*.pth
+*.h5
+*.pb
+*.tflite
 *.log
 dist/
 build/
