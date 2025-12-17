@@ -178,7 +178,7 @@ class FFmpegPublisher:
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=stderr_handle,
-                    bufsize=10**8,  # 큰 버퍼 사용
+                    bufsize=0,  # 버퍼링 비활성화 (즉시 전송)
                 )
                 
                 # 로그 파일 핸들 저장 (나중에 닫기 위해)
@@ -261,7 +261,12 @@ class FFmpegPublisher:
             return False
     
     def _frame_queue_worker(self) -> None:
-        """프레임 큐에서 프레임을 읽어 FFmpeg에 전송하는 워커 스레드."""
+        """
+        프레임 큐에서 프레임을 읽어 FFmpeg에 전송하는 워커 스레드.
+        
+        주의: StreamManager가 이미 FPS를 제어하므로, 여기서는 추가 대기 없이
+        가능한 빨리 프레임을 전송합니다. 이중 대기로 인한 큐 포화를 방지합니다.
+        """
         while self._running and not self._queue_stop_event.is_set():
             try:
                 # 큐에서 프레임 가져오기 (타임아웃으로 종료 확인 가능)
@@ -270,10 +275,16 @@ class FFmpegPublisher:
                 except Empty:
                     continue
                 
+                # [수정됨] 퍼블리셔의 강제 sleep 로직 제거
+                # StreamManager가 이미 속도를 제어하므로 여기서는 즉시 전송합니다.
+                # 이렇게 하면 처리 지연 시 밀린 프레임을 빠르게 따라잡을 수 있습니다.
+                
                 # FFmpeg stdin에 프레임 쓰기
                 if self._process and self._process.stdin:
                     try:
-                        self._process.stdin.write(frame.tobytes())
+                        frame_bytes = frame.tobytes()
+                        self._process.stdin.write(frame_bytes)
+                        self._process.stdin.flush()  # 버퍼 즉시 전송 (지연 최소화)
                         self._frame_count += 1
                     except BrokenPipeError:
                         self._error_count += 1
@@ -283,6 +294,9 @@ class FFmpegPublisher:
                     except Exception as e:
                         self._error_count += 1
                         self._logger.error("프레임 쓰기 실패", error=str(e))
+                else:
+                    # 프로세스가 없으면 프레임 버림
+                    self._dropped_frames += 1
                         
             except Exception as e:
                 self._logger.error("프레임 큐 워커 오류", error=str(e))
@@ -356,6 +370,21 @@ class FFmpegPublisher:
     
     def _build_ffmpeg_command(self) -> list[str]:
         """FFmpeg 명령 구성."""
+        # 버퍼 크기 계산 (bitrate의 2배)
+        try:
+            bitrate_str = self._bitrate.upper()
+            if bitrate_str.endswith("M"):
+                bitrate_val = float(bitrate_str[:-1])
+                bufsize = f"{int(bitrate_val * 2)}M"
+            elif bitrate_str.endswith("K"):
+                bitrate_val = float(bitrate_str[:-1])
+                bufsize = f"{int(bitrate_val * 2)}K"
+            else:
+                # 숫자만 있는 경우 기본값 사용
+                bufsize = "4M"
+        except (ValueError, AttributeError):
+            bufsize = "4M"  # 기본값
+        
         cmd = [
             "ffmpeg",
             "-loglevel", "error",  # H.264 디코딩 경고 메시지 필터링 (error 레벨만 표시)
@@ -364,17 +393,21 @@ class FFmpegPublisher:
             "-vcodec", "rawvideo",
             "-pix_fmt", "bgr24",  # OpenCV BGR 형식
             "-s", f"{self._width}x{self._height}",
-            "-r", str(self._fps),
+            "-r", str(self._fps),  # 입력 FPS (프레임 간격 제어)
             "-i", "-",  # stdin에서 입력
             "-c:v", self._codec,
             "-pix_fmt", self._pix_fmt,
             "-preset", self._preset,
             "-b:v", self._bitrate,
             "-maxrate", self._bitrate,
-            "-bufsize", self._bitrate,
+            "-bufsize", bufsize,  # 버퍼 크기 (bitrate의 2배)
             "-g", str(self._fps * 2),  # GOP 크기 (2초)
+            "-r", str(self._fps),  # 출력 FPS (명시적으로 설정)
             "-f", "rtsp",  # 출력 형식
             "-rtsp_transport", "tcp",
+            "-fflags", "nobuffer",  # 입력 버퍼링 최소화
+            "-flags", "low_delay",  # 낮은 지연 모드
+            "-strict", "experimental",
             self._output_url,
         ]
         return cmd

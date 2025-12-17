@@ -171,7 +171,9 @@ const api = {
                     fps: stream.fps || 0,
                     faces_detected: facesDetected, // 모듈 통계에서 가져온 얼굴 감지 수
                     cpu_usage: cpuUsage, // 시스템 CPU 사용량
-                    blur_settings: blurSettings
+                    blur_settings: blurSettings,
+                    error_message: detail?.last_error || null, // 에러 메시지 추가
+                    last_error: detail?.last_error || null
         };
       });
         } catch (error) {
@@ -180,6 +182,18 @@ const api = {
         }
     },
     controlStream: async (id, action) => {
+        // restart 액션 추가
+        if (action === 'restart') {
+            const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/restart`, { 
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+                throw new Error(errorData.message || `HTTP ${res.status}`);
+            }
+            return await res.json();
+        }
         if (USE_MOCK_DATA) {
             const s = mockStreams.find(x => x.id === id);
             if (s) {
@@ -239,15 +253,15 @@ const api = {
             if (idx > -1) mockStreams.splice(idx, 1);
             return { success: true };
         }
-        // 실제 API는 stop을 호출 (DELETE 엔드포인트 없음)
+        // DELETE 엔드포인트 사용
         try {
-            const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/stop`, { 
-                method: 'POST',
+            const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}`, { 
+                method: 'DELETE',
                 headers: {'Content-Type': 'application/json'}
             });
             if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(errorText || `HTTP ${res.status}`);
+                const errorData = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+                throw new Error(errorData.message || `HTTP ${res.status}`);
             }
             return await res.json();
         } catch (error) {
@@ -344,12 +358,17 @@ function getStatusBadge(status) {
 
 function renderStreamCard(s) {
     const isRunning = s.status === 'running';
+    const isError = s.status === 'error';
+    const isStopped = s.status === 'stopped';
+    const errorMessage = s.error_message || s.last_error || '';
+    
     return `
     <div class="bg-white rounded-2xl shadow-card hover:shadow-lg hover:ring-2 hover:ring-brand-light/20 border border-gray-100 transition-all duration-300 flex flex-col group animate-fade-in cursor-pointer" data-stream-id="${s.id}" data-status="${s.status}" onclick="openChartModal('${s.id}', '${s.name}')">
         <div class="p-5 border-b border-gray-50 flex justify-between items-start">
             <div class="flex-1 min-w-0 pr-3">
                 <h3 class="font-bold text-gray-900 text-base truncate" title="${s.name}">${s.name}</h3>
                 <p class="text-xs text-gray-400 font-mono mt-1 tracking-tight truncate">ID: ${s.id}</p>
+                ${isError && errorMessage ? `<p class="text-xs text-red-600 mt-1 truncate" title="${errorMessage}">⚠️ ${errorMessage}</p>` : ''}
             </div>
             <div class="flex-shrink-0" data-status-badge>${getStatusBadge(s.status)}</div>
         </div>
@@ -385,6 +404,8 @@ function renderStreamCard(s) {
             <div class="flex-1">
                 ${s.status === 'running' 
                     ? `<button onclick="handleAction('${s.id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>` 
+                    : s.status === 'error'
+                    ? `<button onclick="handleRetry('${s.id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>재시도</button>`
                     : `<button onclick="handleAction('${s.id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`
                 }
             </div>
@@ -511,10 +532,36 @@ function updateStreamCards(streams) {
                     if (buttonContainer) {
                         const buttonDiv = buttonContainer.querySelector('.flex-1');
                         if (buttonDiv) {
-                            buttonDiv.innerHTML = stream.status === 'running' 
-                                ? `<button onclick="handleAction('${stream.id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>` 
-                                : `<button onclick="handleAction('${stream.id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`;
+                            if (stream.status === 'running') {
+                                buttonDiv.innerHTML = `<button onclick="handleAction('${stream.id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>`;
+                            } else if (stream.status === 'error') {
+                                buttonDiv.innerHTML = `<button onclick="handleRetry('${stream.id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>재시도</button>`;
+                            } else {
+                                buttonDiv.innerHTML = `<button onclick="handleAction('${stream.id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`;
+                            }
                         }
+                    }
+                    
+                    // Update error message based on status
+                    const nameEl = card.querySelector('h3');
+                    const existingErrorEl = card.querySelector('.text-red-600');
+                    
+                    if (stream.status === 'error' && stream.error_message) {
+                        // 에러 상태이고 에러 메시지가 있으면 표시
+                        if (nameEl && !existingErrorEl) {
+                            const errorEl = document.createElement('p');
+                            errorEl.className = 'text-xs text-red-600 mt-1 truncate';
+                            errorEl.title = stream.error_message;
+                            errorEl.textContent = `⚠️ ${stream.error_message}`;
+                            nameEl.parentElement.appendChild(errorEl);
+                        } else if (existingErrorEl && stream.error_message) {
+                            // 기존 에러 메시지 업데이트
+                            existingErrorEl.textContent = `⚠️ ${stream.error_message}`;
+                            existingErrorEl.title = stream.error_message;
+                        }
+                    } else if (existingErrorEl) {
+                        // 에러 상태가 아니면 에러 메시지 제거
+                        existingErrorEl.remove();
                     }
                 }
             }
@@ -530,7 +577,20 @@ async function handleAction(id, action) {
         renderApp();
     } 
     catch(e) { 
-        showToast('Action failed', 'error'); 
+        const errorMsg = e.message || 'Action failed';
+        showToast(errorMsg, 'error'); 
+    }
+}
+
+async function handleRetry(id) {
+    try {
+        showToast('스트림 재시도 중...', 'success');
+        await api.controlStream(id, 'restart');
+        showToast('스트림 재시도 완료', 'success');
+        renderApp();
+    } catch(e) {
+        const errorMsg = e.message || '재시도 실패';
+        showToast(errorMsg, 'error');
     }
 }
 

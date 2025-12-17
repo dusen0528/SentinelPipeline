@@ -51,7 +51,6 @@ class ErrorCode(str, Enum):
     INFERENCE_FAILED = "INFERENCE_FAILED"               # 추론 실패
     INFERENCE_MODEL_NOT_FOUND = "INFERENCE_MODEL_NOT_FOUND"  # 모델 파일 없음
     INFERENCE_LOAD_FAILED = "INFERENCE_LOAD_FAILED"     # 모델 로드 실패
-    MODEL_LOAD_FAILED = "MODEL_LOAD_FAILED"             # 모델 로드 실패 (deprecated)
     
     # 일반 (5xx)
     INTERNAL_ERROR = "INTERNAL_ERROR"           # 내부 오류
@@ -76,12 +75,12 @@ _ERROR_CODE_TO_HTTP_STATUS: dict[ErrorCode, int] = {
     
     # 5xx Server Errors
     ErrorCode.MODULE_TIMEOUT: 504,
-    ErrorCode.TRANSPORT_TIMEOUT: 504,
+    ErrorCode.TRANSPORT_TIMEOUT: 503,  # 타임아웃은 503으로 변경
     
     ErrorCode.MODULE_FAILED: 500,
     ErrorCode.MODULE_DISABLED: 500,
     ErrorCode.MODULE_LOAD_FAILED: 500,
-    ErrorCode.STREAM_CONNECTION_FAILED: 500,
+    ErrorCode.STREAM_CONNECTION_FAILED: 502,  # 연결 실패는 502로 변경
     ErrorCode.STREAM_DECODE_ERROR: 500,
     ErrorCode.TRANSPORT_FAILED: 500,
     ErrorCode.RESOURCE_EXHAUSTED: 500,
@@ -89,7 +88,6 @@ _ERROR_CODE_TO_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.INFERENCE_FAILED: 500,
     ErrorCode.INFERENCE_MODEL_NOT_FOUND: 404,
     ErrorCode.INFERENCE_LOAD_FAILED: 500,
-    ErrorCode.MODEL_LOAD_FAILED: 500,
     ErrorCode.INTERNAL_ERROR: 500,
     ErrorCode.UNKNOWN_ERROR: 500,
 }

@@ -7,10 +7,12 @@ RTSP 스트림의 설정과 상태를 나타내는 데이터 구조를 정의합
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
 
 
 class StreamStatus(str, Enum):
@@ -113,7 +115,6 @@ class StreamConfig:
         """URL에서 비밀번호를 마스킹합니다."""
         # rtsp://admin:password@host:port/path
         # -> rtsp://admin:****@host:port/path
-        import re
         return re.sub(r"(://[^:]+:)[^@]+(@)", r"\1****\2", url)
     
     @classmethod
@@ -317,16 +318,6 @@ class StreamState:
         """
         delay = self.config.reconnect_base_delay * (2 ** self.retry_count)
         return min(delay, self.config.reconnect_max_delay)
-    
-    def should_retry(self) -> bool:
-        """재연결을 시도해야 하는지 확인합니다."""
-        if not self.config.reconnect_enabled:
-            return False
-        
-        if self.retry_count >= self.config.reconnect_max_retries:
-            return False
-        
-        return True
     
     def record_retry(self) -> None:
         """재연결 시도를 기록합니다."""

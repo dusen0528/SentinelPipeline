@@ -7,7 +7,8 @@ Interface Layer에서만 FastAPI에 의존합니다.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+import asyncio
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,16 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
     """
     app = FastAPI(title="SentinelPipeline API", version="0.1.0")
 
+    @app.on_event("startup")
+    async def on_startup():
+        """애플리케이션 시작 시 이벤트 루프를 StreamManager에 설정합니다."""
+        logger.info("Setting event loop for StreamManager")
+        loop = asyncio.get_running_loop()
+        if hasattr(app.state, "app_context"):
+            app.state.app_context.stream_manager.set_event_loop(loop)
+        else:
+            logger.warning("AppContext not found in app.state")
+
     # CORS
     origins = list(allowed_origins) if allowed_origins else []
     if origins:
@@ -63,16 +74,20 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
         )
         return JSONResponse(
             status_code=exc.http_status,
-            content={"success": False, "error": exc.to_dict()},
+            content={"success": False, "message": exc.message},
         )
 
     @app.exception_handler(ValidationError)
     async def handle_validation_error(_: Request, exc: ValidationError) -> JSONResponse:
         """Pydantic ValidationError → 422 응답."""
         logger.error("검증 오류", errors=exc.errors())
+        error_msg = "입력 데이터 검증 실패"
+        if exc.errors():
+            first_error = exc.errors()[0]
+            error_msg = f"{first_error.get('loc', [''])}: {first_error.get('msg', '검증 실패')}"
         return JSONResponse(
             status_code=422,
-            content={"success": False, "error": {"code": "VALIDATION_ERROR", "details": exc.errors()}},
+            content={"success": False, "message": error_msg},
         )
 
     @app.exception_handler(Exception)
@@ -81,7 +96,7 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
         logger.error("알 수 없는 오류", error=str(exc))
         return JSONResponse(
             status_code=500,
-            content={"success": False, "error": {"code": "INTERNAL_ERROR", "message": "서버 오류가 발생했습니다"}},
+            content={"success": False, "message": "서버 오류가 발생했습니다"},
         )
 
     # 라우터 등록

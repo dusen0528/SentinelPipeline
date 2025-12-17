@@ -110,6 +110,7 @@ class StreamManager:
         """스트림 관리자 초기화"""
         self._streams: dict[str, StreamContext] = {}
         self._lock = threading.RLock()
+        self._loop: asyncio.AbstractEventLoop | None = None
         
         # 팩토리 함수 (Infrastructure에서 설정)
         self._decoder_factory: Callable[[], DecoderProtocol] | None = None
@@ -124,6 +125,11 @@ class StreamManager:
         # 전역 설정
         self._global_max_fps = 15
         self._global_downscale = 1.0
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """이벤트 루프를 설정합니다."""
+        self._loop = loop
+    
     
     def set_decoder_factory(
         self,
@@ -397,6 +403,8 @@ class StreamManager:
             frame_interval = 1.0 / config.max_fps
             last_frame_time = 0.0
             frame_number = 0
+            consecutive_failures = 0  # 연속 실패 횟수
+            MAX_CONSECUTIVE_FAILURES = 5  # 5회 연속 실패 시 재연결 시도
             
             while not ctx.should_stop():
                 # FPS 제한
@@ -411,11 +419,68 @@ class StreamManager:
                 # 프레임 읽기
                 success, frame = ctx.decoder.read_frame()
                 if not success or frame is None:
+                    consecutive_failures += 1
                     ctx.state.stats.record_error()
                     
-                    if self._should_reconnect(ctx):
-                        self._attempt_reconnect(ctx)
+                    # 연결 상태 확인 (OpenCV가 여전히 열려있다고 해도 실제로는 끊겼을 수 있음)
+                    is_actually_connected = ctx.decoder.is_connected
+                    
+                    # 연속 실패가 일정 횟수 이상이거나, 연결이 명확히 끊긴 경우 재연결 시도
+                    if not is_actually_connected or consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        logger.warning(
+                            f"프레임 읽기 실패 감지: {stream_id} (연속 {consecutive_failures}회, 연결 상태: {is_actually_connected})",
+                            stream_id=stream_id,
+                            consecutive_failures=consecutive_failures,
+                            is_connected=is_actually_connected,
+                        )
+                        # 재연결 시도 (최대 4회: 1, 2, 4, 8초)
+                        if self._should_reconnect(ctx):
+                            reconnect_success = self._attempt_reconnect(ctx)
+                            if reconnect_success:
+                                # 재연결 성공 시에만 카운터 리셋
+                                consecutive_failures = 0
+                            # 재연결 실패 시 consecutive_failures는 유지되어 다음 루프에서 다시 재연결 시도
+                        else:
+                            # 최대 재시도 횟수 초과 - 스트림 종료
+                            logger.error(
+                                f"스트림 재연결 실패 (최대 재시도 횟수 초과): {stream_id}",
+                                stream_id=stream_id,
+                                retry_count=ctx.state.retry_count,
+                            )
+                            ctx.state.set_status(
+                                StreamStatus.ERROR,
+                                f"재연결 실패: 최대 재시도 횟수(4회) 초과"
+                            )
+                            self._notify_status_change(stream_id, StreamStatus.ERROR)
+                            break  # 스트림 루프 종료
                     continue
+                
+                # 프레임 읽기 성공 - 연속 실패 카운터 리셋
+                consecutive_failures = 0
+                
+                # 프레임 읽기 성공 시 재연결 중이었다면 RUNNING으로 복구
+                if ctx.state.status == StreamStatus.RECONNECTING:
+                    ctx.state.set_status(StreamStatus.RUNNING)
+                    ctx.state.reset_retry()
+                    self._notify_status_change(stream_id, StreamStatus.RUNNING)
+                    logger.info(f"스트림 재연결 성공 (프레임 수신 재개): {stream_id}", stream_id=stream_id)
+                    
+                    # 퍼블리셔 재시작 (VLC 등 클라이언트가 재연결할 수 있도록)
+                    if ctx.publisher and config.output_enabled:
+                        try:
+                            logger.info(f"퍼블리셔 재시작: {stream_id}", stream_id=stream_id)
+                            ctx.publisher.stop(timeout=2.0)
+                            # 프레임 큐 비우기
+                            time.sleep(0.5)  # FFmpeg 프로세스 완전 종료 대기
+                            ctx.publisher.start()
+                            logger.info(f"퍼블리셔 재시작 완료: {stream_id}", stream_id=stream_id)
+                        except Exception as e:
+                            logger.error(
+                                f"퍼블리셔 재시작 실패: {stream_id} - {e}",
+                                stream_id=stream_id,
+                                error=str(e),
+                            )
+                            # 퍼블리셔 재시작 실패해도 스트림은 계속 진행
                 
                 frame_number += 1
                 
@@ -468,18 +533,38 @@ class StreamManager:
             logger.info(f"스트림 루프 종료: {stream_id}", stream_id=stream_id)
     
     def _should_reconnect(self, ctx: StreamContext) -> bool:
-        """재연결을 시도해야 하는지 확인합니다."""
+        """
+        재연결을 시도해야 하는지 확인합니다.
+        
+        재연결이 활성화되어 있고, 최대 재시도 횟수를 넘지 않았으면 재연결을 시도합니다.
+        """
         if ctx.should_stop():
             return False
-        return ctx.state.should_retry()
+        if not ctx.state.config.reconnect_enabled:
+            return False
+        # 최대 재시도 횟수 확인
+        return ctx.state.retry_count < ctx.state.config.reconnect_max_retries
     
-    def _attempt_reconnect(self, ctx: StreamContext) -> None:
-        """재연결을 시도합니다."""
-        stream_id = ctx.stream_id
+    def _attempt_reconnect(self, ctx: StreamContext) -> bool:
+        """
+        재연결을 시도합니다.
         
-        ctx.state.set_status(StreamStatus.RECONNECTING)
+        지수 백오프 방식으로 재연결을 시도합니다 (1, 2, 4, 8초).
+        재연결 성공 시 RUNNING 상태로 복구하고, 실패 시에도 계속 재시도합니다.
+        
+        Returns:
+            재연결 성공 여부
+        """
+        stream_id = ctx.stream_id
+        config = ctx.state.config
+        
+        # RECONNECTING 상태로 변경 (아직 변경되지 않은 경우만)
+        if ctx.state.status != StreamStatus.RECONNECTING:
+            ctx.state.set_status(StreamStatus.RECONNECTING)
+            self._notify_status_change(stream_id, StreamStatus.RECONNECTING)
+        
+        # 재시도 카운터 증가 (최대 4회까지만)
         ctx.state.record_retry()
-        self._notify_status_change(stream_id, StreamStatus.RECONNECTING)
         
         delay = ctx.state.calculate_next_retry_delay()
         logger.info(
@@ -493,19 +578,81 @@ class StreamManager:
         wait_end = time.time() + delay
         while time.time() < wait_end:
             if ctx.should_stop():
-                return
+                return False
             time.sleep(0.1)
         
-        # 디코더 재연결
+        # 디코더 재연결 시도
         if ctx.decoder:
-            ctx.decoder.release()
-            if ctx.decoder.connect(ctx.state.config.rtsp_url):
-                ctx.state.set_status(StreamStatus.RUNNING)
-                ctx.state.reset_retry()
-                self._notify_status_change(stream_id, StreamStatus.RUNNING)
-                logger.info(f"스트림 재연결 성공: {stream_id}", stream_id=stream_id)
-            else:
-                logger.warning(f"스트림 재연결 실패: {stream_id}", stream_id=stream_id)
+            try:
+                ctx.decoder.release()
+            except Exception as e:
+                logger.warning(f"디코더 해제 중 오류: {stream_id} - {e}", stream_id=stream_id)
+            
+            try:
+                if ctx.decoder.connect(config.rtsp_url):
+                    # 재연결 성공
+                    ctx.state.set_status(StreamStatus.RUNNING)
+                    ctx.state.reset_retry()
+                    self._notify_status_change(stream_id, StreamStatus.RUNNING)
+                    logger.info(f"스트림 재연결 성공: {stream_id}", stream_id=stream_id)
+                    return True
+                else:
+                    # 재연결 실패 - 다음 루프에서 다시 시도
+                    logger.warning(
+                        f"스트림 재연결 실패: {stream_id} (다음 시도 대기 중)",
+                        stream_id=stream_id,
+                        retry_count=ctx.state.retry_count,
+                    )
+                    return False
+            except Exception as e:
+                # 연결 시도 중 예외 발생
+                logger.warning(
+                    f"스트림 재연결 시도 중 오류: {stream_id} - {e}",
+                    stream_id=stream_id,
+                    error=str(e),
+                )
+                return False
+        
+        return False
+    
+    def delete_stream(self, stream_id: str) -> bool:
+        """
+        스트림을 삭제합니다.
+        
+        스트림이 실행 중이면 먼저 중지한 후 삭제합니다.
+        
+        Args:
+            stream_id: 스트림 ID
+            
+        Returns:
+            성공 여부
+            
+        Raises:
+            StreamError: 스트림이 존재하지 않을 때
+        """
+        with self._lock:
+            ctx = self._streams.get(stream_id)
+            if not ctx:
+                raise StreamError(
+                    ErrorCode.STREAM_NOT_FOUND,
+                    f"스트림을 찾을 수 없습니다: {stream_id}",
+                    stream_id=stream_id,
+                )
+        
+        # 실행 중이면 먼저 중지
+        if ctx.state.is_active:
+            logger.info(f"스트림 삭제 전 중지: {stream_id}", stream_id=stream_id)
+            self.stop_stream(stream_id)
+        
+        # 리소스 정리
+        self._cleanup_stream(ctx)
+        
+        # 스트림 제거
+        with self._lock:
+            del self._streams[stream_id]
+            logger.info(f"스트림 삭제 완료: {stream_id}", stream_id=stream_id)
+        
+        return True
     
     def _cleanup_stream(self, ctx: StreamContext) -> None:
         """스트림 리소스를 정리합니다."""
@@ -543,10 +690,15 @@ class StreamManager:
             "error_count": stats.error_count if stats else None,
             "last_frame_ts": stats.last_frame_ts if stats else None,
         }
-        try:
-            asyncio.create_task(publish_stream_update(payload))
-        except RuntimeError:
-            logger.debug("WS loop not running; skip stream_update")
+        if self._loop:
+            try:
+                self._loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(publish_stream_update(payload))
+                )
+            except RuntimeError as e:
+                logger.error(f"WS publish_stream_update failed: {e}")
+        else:
+            logger.debug("No event loop; skip stream_update")
     
     def apply_global_config(
         self,

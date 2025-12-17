@@ -34,7 +34,7 @@
           "pixelate_size": 10,
           "blur_strength": 31,
           "imgsz": 320,
-          "skip_interval": 3,
+          "skip_interval": 2,
           "max_age": 50,
           "smoothing": 0.5,
           "iou_threshold": 0.35,
