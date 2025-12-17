@@ -305,7 +305,6 @@ class PipelineEngine:
         """모듈 통계를 주기적으로 WS로 전송합니다."""
         if self._stats_task_started:
             return
-        self._stats_task_started = True
 
         async def _loop():
             from sentinel_pipeline.interface.api.ws_bus import publish_module_stats
@@ -323,8 +322,11 @@ class PipelineEngine:
             # 실행 중인 이벤트 루프가 있는지 확인
             loop = asyncio.get_running_loop()
             loop.create_task(_loop())
+            # 태스크가 성공적으로 생성된 후에만 플래그 설정
+            self._stats_task_started = True
         except RuntimeError:
             # 이벤트 루프가 없으면 나중에 FastAPI가 시작되면 자동으로 시작됨
+            # 플래그는 설정하지 않아서 나중에 다시 시도할 수 있도록 함
             logger.debug("event loop not running; module_stats publisher will start when FastAPI starts")
     
     def shutdown(self) -> None:

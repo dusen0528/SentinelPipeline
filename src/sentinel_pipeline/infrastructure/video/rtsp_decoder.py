@@ -7,6 +7,7 @@ OpenCV를 사용하여 RTSP 스트림을 디코딩합니다.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any
@@ -17,6 +18,10 @@ from numpy.typing import NDArray
 
 from sentinel_pipeline.common.errors import ErrorCode, StreamError
 from sentinel_pipeline.common.logging import get_logger
+
+# FFmpeg 로그 레벨 설정 (H.264 디코딩 경고 메시지 필터링)
+# error 레벨만 표시하여 corrupted macroblock 등의 경고 숨김
+os.environ.setdefault("FFREPORT", "file=ffmpeg.log:level=error")
 
 
 # 프레임 타입 정의

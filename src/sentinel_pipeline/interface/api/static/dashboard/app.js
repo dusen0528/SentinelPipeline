@@ -2,6 +2,11 @@
 const USE_MOCK_DATA = false; // 실제 API 사용
 const API_BASE = '/api';
 
+// --- Alarm System ---
+let alarms = []; // 알람 목록
+let previousStreamStates = {}; // 이전 스트림 상태 추적
+let alarmModal = null;
+
 // --- Mock Data ---
 const generateMockStats = () => ({
     total_streams: 12,
@@ -98,10 +103,34 @@ const api = {
             });
         }
         try {
-            const res = await fetch(`${API_BASE}/streams`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-            const streams = data.data || [];
+            // 스트림 목록, 모듈 통계, 시스템 통계를 병렬로 가져오기
+            const [streamsRes, moduleStatsRes, systemStatsRes] = await Promise.all([
+                fetch(`${API_BASE}/streams`),
+                fetch(`${API_BASE}/stats/modules`),
+                fetch(`${API_BASE}/stats/system`)
+            ]);
+            
+            if (!streamsRes.ok) throw new Error(`HTTP ${streamsRes.status}`);
+            const streamsData = await streamsRes.json();
+            const streams = streamsData.data || [];
+            
+            // 모듈 통계 파싱
+            let facesDetected = 0;
+            if (moduleStatsRes.ok) {
+                const moduleData = await moduleStatsRes.json();
+                if (moduleData.success && moduleData.data && moduleData.data.FaceBlurModule) {
+                    facesDetected = moduleData.data.FaceBlurModule.faces_detected || 0;
+                }
+            }
+            
+            // 시스템 통계 파싱 (CPU 사용량용)
+            let cpuUsage = 0;
+            if (systemStatsRes.ok) {
+                const systemData = await systemStatsRes.json();
+                if (systemData.success && systemData.data && systemData.data.process) {
+                    cpuUsage = systemData.data.process.cpu_percent || 0;
+                }
+            }
             
             // 각 스트림의 상세 정보를 병렬로 가져오기
             const streamDetails = await Promise.all(
@@ -127,8 +156,8 @@ const api = {
                 const config = detail?.config || {};
                 const status = stream.status.toLowerCase(); // RUNNING -> running
                 
-                // FaceBlurModule 설정 추출 (기본값 사용)
-                const blurSettings = {
+                // FaceBlurModule 설정 추출
+                const blurSettings = config.blur_settings || {
                     anonymize_method: 'pixelate',
                     blur_strength: 31
                 };
@@ -140,11 +169,11 @@ const api = {
                     output_url: config.output_url || '',
                     status: status,
                     fps: stream.fps || 0,
-                    faces_detected: 0, // 모듈 통계는 별도로 가져와야 함
-                    cpu_usage: 0, // 시스템 메트릭은 별도로 가져와야 함
+                    faces_detected: facesDetected, // 모듈 통계에서 가져온 얼굴 감지 수
+                    cpu_usage: cpuUsage, // 시스템 CPU 사용량
                     blur_settings: blurSettings
-                };
-            });
+        };
+      });
         } catch (error) {
             console.error('Failed to fetch streams:', error);
             return [];
@@ -179,11 +208,11 @@ const api = {
                     downscale: cfg.downscale,
                 };
                 const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/start`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                if (!res.ok) {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
                     const errorText = await res.text();
                     throw new Error(errorText || `HTTP ${res.status}`);
                 }
@@ -316,7 +345,7 @@ function getStatusBadge(status) {
 function renderStreamCard(s) {
     const isRunning = s.status === 'running';
     return `
-    <div class="bg-white rounded-2xl shadow-card hover:shadow-lg hover:ring-2 hover:ring-brand-light/20 border border-gray-100 transition-all duration-300 flex flex-col group animate-fade-in" data-stream-id="${s.id}" data-status="${s.status}">
+    <div class="bg-white rounded-2xl shadow-card hover:shadow-lg hover:ring-2 hover:ring-brand-light/20 border border-gray-100 transition-all duration-300 flex flex-col group animate-fade-in cursor-pointer" data-stream-id="${s.id}" data-status="${s.status}" onclick="openChartModal('${s.id}', '${s.name}')">
         <div class="p-5 border-b border-gray-50 flex justify-between items-start">
             <div class="flex-1 min-w-0 pr-3">
                 <h3 class="font-bold text-gray-900 text-base truncate" title="${s.name}">${s.name}</h3>
@@ -335,15 +364,15 @@ function renderStreamCard(s) {
             </div>
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
                 <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">CPU</span>
-                <span class="font-mono text-lg font-bold ${isRunning ? 'text-blue-600' : 'text-gray-300'}" data-metric="cpu">${isRunning ? Math.round(s.cpu_usage) + '%' : '-'}</span>
+                <span class="font-mono text-lg font-bold ${isRunning ? 'text-blue-600' : 'text-gray-300'}" data-metric="cpu">${isRunning ? Math.round(Math.min(Math.max(s.cpu_usage || 0, 0), 100)) + '%' : '-'}</span>
             </div>
         </div>
         <div class="px-5 py-4 space-y-3 flex-1">
-            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="copyToClipboard('${s.input_url}')">
+            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="event.stopPropagation(); copyToClipboard('${s.input_url}')">
                 <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span><span class="text-xs text-gray-500 font-bold">Input</span></div>
                 <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate">${s.input_url}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
             </div>
-            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="copyToClipboard('${s.output_url}')">
+            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="event.stopPropagation(); copyToClipboard('${s.output_url}')">
                  <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-brand-light"></span><span class="text-xs text-gray-500 font-bold">Output</span></div>
                 <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate">${s.output_url}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
             </div>
@@ -352,7 +381,7 @@ function renderStreamCard(s) {
                 <span class="text-[10px] text-gray-400 font-bold">STR: ${s.blur_settings.blur_strength}</span>
             </div>
         </div>
-        <div class="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-between items-center gap-3 rounded-b-2xl">
+        <div class="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-between items-center gap-3 rounded-b-2xl" onclick="event.stopPropagation()">
             <div class="flex-1">
                 ${s.status === 'running' 
                     ? `<button onclick="handleAction('${s.id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>` 
@@ -374,12 +403,14 @@ async function renderApp() {
     document.getElementById('stat-total').innerText = stats.total_streams;
     document.getElementById('stat-running').innerText = stats.running_streams;
     
-    // CPU 정보 업데이트
-    document.getElementById('stat-cpu').innerText = stats.total_cpu_usage.toFixed(1) + '%';
-    document.getElementById('bar-cpu').style.width = Math.min(stats.total_cpu_usage, 100) + '%';
+    // CPU 정보 업데이트 (0-100%로 제한)
+    const systemCpu = Math.min(Math.max(stats.total_cpu_usage || 0, 0), 100);
+    const processCpu = Math.min(Math.max(stats.process_cpu_usage || 0, 0), 100);
+    document.getElementById('stat-cpu').innerText = systemCpu.toFixed(1) + '%';
+    document.getElementById('bar-cpu').style.width = systemCpu + '%';
     const processCpuEl = document.getElementById('stat-process-cpu');
     if (processCpuEl) {
-        processCpuEl.innerText = (stats.process_cpu_usage || 0).toFixed(1) + '%';
+        processCpuEl.innerText = processCpu.toFixed(1) + '%';
     }
     
     // Memory 정보 업데이트
@@ -424,6 +455,17 @@ async function renderApp() {
             // Always update existing cards without re-rendering (no flicker)
             updateStreamCards(streams);
         }
+        
+        // 스트림 상태 변경 감지 및 알람 생성
+        checkStreamStatusChanges(streams);
+        
+        // 차트 모달이 열려있으면 차트 데이터 업데이트
+        if (currentStreamId) {
+            const selectedStream = streams.find(s => s.id === currentStreamId);
+            if (selectedStream) {
+                updateChartData(currentStreamId);
+            }
+        }
     }
 }
 
@@ -448,10 +490,11 @@ function updateStreamCards(streams) {
                 facesEl.className = `font-mono text-lg font-bold ${isRunning ? 'text-brand' : 'text-gray-300'}`;
             }
             
-            // Update CPU
+            // Update CPU (0-100%로 제한)
             const cpuEl = card.querySelector('[data-metric="cpu"]');
             if (cpuEl) {
-                cpuEl.textContent = isRunning ? Math.round(stream.cpu_usage) + '%' : '-';
+                const cpuValue = Math.min(Math.max(stream.cpu_usage || 0, 0), 100);
+                cpuEl.textContent = isRunning ? Math.round(cpuValue) + '%' : '-';
                 cpuEl.className = `font-mono text-lg font-bold ${isRunning ? 'text-blue-600' : 'text-gray-300'}`;
             }
             
@@ -621,6 +664,375 @@ if (skipIntervalInput) {
     });
 }
 
+// --- Chart Modal Functions ---
+let chartModal = null;
+let fpsChart = null;
+let facesChart = null;
+let cpuChart = null;
+let moduleChart = null;
+let currentStreamId = null;
+let chartUpdateInterval = null;
+let chartData = {
+    fps: { labels: [], data: [] },
+    faces: { labels: [], data: [] },
+    cpu: { labels: [], data: [] },
+    module: { labels: [], success: [], errors: [], timeouts: [] }
+};
+const MAX_CHART_POINTS = 50;
+
+function initCharts() {
+    if (typeof Chart === 'undefined') return;
+    
+    const fpsCtx = document.getElementById('fps-chart');
+    const facesCtx = document.getElementById('faces-chart');
+    const cpuCtx = document.getElementById('cpu-chart');
+    const moduleCtx = document.getElementById('module-chart');
+    
+    if (fpsCtx) {
+        fpsChart = new Chart(fpsCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'FPS',
+                    data: [],
+                    borderColor: '#0f766e',
+                    backgroundColor: 'rgba(15, 118, 110, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 2,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    y: { beginAtZero: true }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+    
+    if (facesCtx) {
+        facesChart = new Chart(facesCtx, {
+      type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Faces',
+                    data: [],
+                    borderColor: '#14b8a6',
+                    backgroundColor: 'rgba(20, 184, 166, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 2,
+                    borderWidth: 2
+                }]
+            },
+      options: {
+                responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+                    y: { beginAtZero: true }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+    
+    if (cpuCtx) {
+        cpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'CPU %',
+                    data: [],
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 2,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    y: { beginAtZero: true, max: 100 }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+    
+  if (moduleCtx) {
+    moduleChart = new Chart(moduleCtx, {
+      type: 'line',
+      data: {
+                labels: [],
+        datasets: [
+                    {
+                        label: 'Success',
+                        data: [],
+                        borderColor: '#34d399',
+                        backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: 2,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Errors',
+                        data: [],
+                        borderColor: '#f87171',
+                        backgroundColor: 'rgba(248, 113, 113, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: 2,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Timeouts',
+                        data: [],
+                        borderColor: '#f5a524',
+                        backgroundColor: 'rgba(245, 165, 36, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: 2,
+                        borderWidth: 2
+                    }
+                ]
+      },
+      options: {
+                responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+                    y: { beginAtZero: true }
+                },
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+    });
+  }
+}
+
+function formatTime(tsSec) {
+    const d = tsSec ? new Date(tsSec * 1000) : new Date();
+    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function updateCharts(streamData, moduleStats) {
+    if (!fpsChart || !facesChart || !cpuChart || !moduleChart) return;
+    
+    const now = formatTime();
+    
+    // FPS Chart
+    chartData.fps.labels.push(now);
+    chartData.fps.data.push(streamData.fps || 0);
+    if (chartData.fps.labels.length > MAX_CHART_POINTS) {
+        chartData.fps.labels.shift();
+        chartData.fps.data.shift();
+    }
+    fpsChart.data.labels = chartData.fps.labels;
+    fpsChart.data.datasets[0].data = chartData.fps.data;
+    fpsChart.update('none');
+    
+    // Faces Chart
+    chartData.faces.labels.push(now);
+    chartData.faces.data.push(streamData.faces_detected || 0);
+    if (chartData.faces.labels.length > MAX_CHART_POINTS) {
+        chartData.faces.labels.shift();
+        chartData.faces.data.shift();
+    }
+    facesChart.data.labels = chartData.faces.labels;
+    facesChart.data.datasets[0].data = chartData.faces.data;
+    facesChart.update('none');
+    
+    // CPU Chart (0-100%로 제한)
+    chartData.cpu.labels.push(now);
+    const cpuValue = Math.min(Math.max(streamData.cpu_usage || 0, 0), 100);
+    chartData.cpu.data.push(cpuValue);
+    if (chartData.cpu.labels.length > MAX_CHART_POINTS) {
+        chartData.cpu.labels.shift();
+        chartData.cpu.data.shift();
+    }
+    cpuChart.data.labels = chartData.cpu.labels;
+    cpuChart.data.datasets[0].data = chartData.cpu.data;
+    cpuChart.update('none');
+    
+    // Module Chart
+    if (moduleStats) {
+        let success = 0, errors = 0, timeouts = 0;
+        Object.values(moduleStats).forEach((stats) => {
+            success += stats.total_processed || 0;
+            errors += stats.error_count || 0;
+            timeouts += stats.timeout_count || 0;
+        });
+        
+        chartData.module.labels.push(now);
+        chartData.module.success.push(success);
+        chartData.module.errors.push(errors);
+        chartData.module.timeouts.push(timeouts);
+        if (chartData.module.labels.length > MAX_CHART_POINTS) {
+            chartData.module.labels.shift();
+            chartData.module.success.shift();
+            chartData.module.errors.shift();
+            chartData.module.timeouts.shift();
+        }
+        moduleChart.data.labels = chartData.module.labels;
+        moduleChart.data.datasets[0].data = chartData.module.success;
+        moduleChart.data.datasets[1].data = chartData.module.errors;
+        moduleChart.data.datasets[2].data = chartData.module.timeouts;
+        moduleChart.update('none');
+    }
+}
+
+async function openChartModal(streamId, streamName) {
+    currentStreamId = streamId;
+    chartModal = document.getElementById('chart-modal');
+    document.getElementById('chart-modal-title').textContent = `${streamName} Analytics`;
+    document.getElementById('chart-modal-subtitle').textContent = `Stream ID: ${streamId}`;
+    
+    // 차트 초기화
+    if (!fpsChart) {
+        initCharts();
+    }
+    
+    // 데이터 초기화
+    chartData = {
+        fps: { labels: [], data: [] },
+        faces: { labels: [], data: [] },
+        cpu: { labels: [], data: [] },
+        module: { labels: [], success: [], errors: [], timeouts: [] },
+        lastData: null // 마지막 데이터 저장 (변경 감지용)
+    };
+    
+    // 모달 표시
+    chartModal.classList.remove('hidden');
+    
+    // 초기 데이터 로드
+    await updateChartData(streamId);
+    
+    // 주기적으로 차트 업데이트 (2초마다)
+    if (chartUpdateInterval) {
+        clearInterval(chartUpdateInterval);
+    }
+    chartUpdateInterval = setInterval(() => {
+        if (currentStreamId && chartModal && !chartModal.classList.contains('hidden')) {
+            updateChartData(currentStreamId);
+        }
+    }, 2000);
+}
+
+async function updateChartData(streamId) {
+    if (!currentStreamId || currentStreamId !== streamId) return;
+    
+    try {
+        const [streamRes, moduleRes, systemRes] = await Promise.all([
+            fetch(`${API_BASE}/streams/${encodeURIComponent(streamId)}`),
+            fetch(`${API_BASE}/stats/modules`),
+            fetch(`${API_BASE}/stats/system`)
+        ]);
+        
+        if (streamRes.ok) {
+            const streamData = await streamRes.json();
+            const stream = streamData.data;
+            
+            // 스트림 상태 확인 (ERROR 또는 STOPPED 상태일 때는 차트 업데이트 안 함)
+            const streamStatus = (stream.status || '').toLowerCase();
+            if (streamStatus === 'error' || streamStatus === 'stopped') {
+                return; // ERROR 또는 STOPPED 상태면 차트 업데이트 중단
+            }
+            
+            let moduleStats = null;
+            let facesDetected = 0;
+            let cpuUsage = 0;
+            
+            if (moduleRes.ok) {
+                const moduleData = await moduleRes.json();
+                if (moduleData.success && moduleData.data) {
+                    moduleStats = moduleData.data;
+                    // FaceBlurModule에서 얼굴 감지 수 가져오기
+                    if (moduleData.data.FaceBlurModule) {
+                        facesDetected = moduleData.data.FaceBlurModule.faces_detected || 0;
+                    }
+                }
+            }
+            
+            if (systemRes.ok) {
+                const systemData = await systemRes.json();
+                if (systemData.success && systemData.data && systemData.data.process) {
+                    cpuUsage = systemData.data.process.cpu_percent || 0;
+                }
+            }
+            
+            // 데이터 준비 (CPU는 0-100%로 제한)
+            const newData = {
+                fps: stream.stats?.fps || 0,
+                faces_detected: facesDetected,
+                cpu_usage: Math.min(Math.max(cpuUsage || 0, 0), 100)
+            };
+            
+            // 이전 데이터와 비교하여 변경된 경우에만 업데이트 (부동소수점 비교를 위해 반올림)
+            const lastData = chartData.lastData || {};
+            const hasChanged = 
+                Math.round(lastData.fps * 10) !== Math.round(newData.fps * 10) ||
+                lastData.faces_detected !== newData.faces_detected ||
+                Math.round(lastData.cpu_usage * 10) !== Math.round(newData.cpu_usage * 10);
+            
+            // 항상 차트 업데이트 (시간이 지나면서 데이터가 추가되어야 함)
+            chartData.lastData = newData;
+            updateCharts(newData, moduleStats);
+        }
+    } catch (error) {
+        console.error('Failed to update charts:', error);
+    }
+}
+
+function closeChartModal() {
+    if (chartModal) {
+        chartModal.classList.add('hidden');
+    }
+    currentStreamId = null;
+    // 차트 업데이트 인터벌 정리
+    if (chartUpdateInterval) {
+        clearInterval(chartUpdateInterval);
+        chartUpdateInterval = null;
+    }
+    // 마지막 데이터 초기화
+    if (chartData) {
+        chartData.lastData = null;
+    }
+    chartData.lastData = null;
+}
+
+// 모달 외부 클릭 시 닫기
+document.addEventListener('DOMContentLoaded', () => {
+    chartModal = document.getElementById('chart-modal');
+    if (chartModal) {
+        chartModal.addEventListener('click', (e) => {
+            if (e.target === chartModal) {
+                closeChartModal();
+            }
+        });
+    }
+});
+
 // --- Utility Functions ---
 function copyToClipboard(text) { 
     navigator.clipboard.writeText(text); 
@@ -639,6 +1051,170 @@ function showToast(msg, type = 'success') {
         setTimeout(() => el.remove(), 300); 
     }, 3000);
 }
+
+// --- Alarm System Functions ---
+function checkStreamStatusChanges(streams) {
+    streams.forEach(stream => {
+        const prevState = previousStreamStates[stream.id];
+        const currentStatus = stream.status.toLowerCase();
+        
+        // 상태 변경 감지
+        if (prevState && prevState.status !== currentStatus) {
+            // ERROR 또는 LIVE(running) 상태로 변경된 경우 알람 생성
+            if (currentStatus === 'error' || currentStatus === 'running') {
+                const alarmType = currentStatus === 'error' ? 'error' : 'success';
+                const message = currentStatus === 'error' 
+                    ? `스트림 "${stream.name}"이(가) 오류 상태로 변경되었습니다.`
+                    : `스트림 "${stream.name}"이(가) 라이브 상태로 시작되었습니다.`;
+                
+                addAlarm({
+                    streamId: stream.id,
+                    streamName: stream.name,
+                    type: alarmType,
+                    message: message,
+                    timestamp: Date.now()
+                });
+                
+                // 토스트 메시지 표시
+                showToast(message, alarmType);
+            }
+        }
+        
+        // 현재 상태 저장
+        previousStreamStates[stream.id] = {
+            status: currentStatus,
+            name: stream.name
+        };
+    });
+}
+
+function addAlarm(alarm) {
+    const alarmId = `alarm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    alarms.unshift({
+        id: alarmId,
+        ...alarm,
+        read: false
+    });
+    
+    // 최대 100개까지만 유지
+    if (alarms.length > 100) {
+        alarms = alarms.slice(0, 100);
+    }
+    
+    updateAlarmBadge();
+    const alarmModal = document.getElementById('alarm-modal');
+    if (alarmModal && !alarmModal.classList.contains('hidden')) {
+        renderAlarmList();
+    }
+}
+
+function updateAlarmBadge() {
+    const badge = document.getElementById('alarm-badge');
+    const unreadCount = alarms.filter(a => !a.read).length;
+    if (badge) {
+        if (unreadCount > 0) {
+            badge.classList.remove('hidden');
+            const badgeText = unreadCount > 99 ? '99+' : unreadCount.toString();
+            badge.innerHTML = badgeText;
+            badge.className = 'absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center text-[10px] font-bold text-white bg-red-500 rounded-full border-2 border-white px-1';
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+}
+
+function renderAlarmList() {
+    const alarmList = document.getElementById('alarm-list');
+    if (!alarmList) return;
+    
+    if (alarms.length === 0) {
+        alarmList.innerHTML = `
+            <div class="p-8 text-center text-gray-400">
+                <span class="material-symbols-outlined text-4xl mb-2">notifications_off</span>
+                <p class="text-sm font-medium">알람이 없습니다</p>
+            </div>
+        `;
+    return;
+  }
+
+    alarmList.innerHTML = alarms.map(alarm => {
+        const icon = alarm.type === 'error' ? 'error' : 'check_circle';
+        const color = alarm.type === 'error' ? 'text-red-600 bg-red-50 border-red-200' : 'text-green-600 bg-green-50 border-green-200';
+        const time = new Date(alarm.timestamp).toLocaleString('ko-KR', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        return `
+            <div class="p-4 border-b border-gray-100 hover:bg-gray-50 transition ${alarm.read ? 'opacity-60' : ''}" data-alarm-id="${alarm.id}">
+                <div class="flex items-start gap-3">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full ${color} flex items-center justify-center border">
+                        <span class="material-symbols-outlined text-lg">${icon}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-bold text-gray-900 mb-1">${alarm.streamName}</p>
+                        <p class="text-xs text-gray-600 mb-2">${alarm.message}</p>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] text-gray-400 font-mono">${time}</span>
+                            <button onclick="removeAlarm('${alarm.id}')" class="text-gray-400 hover:text-red-600 transition p-1">
+                                <span class="material-symbols-outlined text-sm">close</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function toggleAlarmModal() {
+    const alarmModal = document.getElementById('alarm-modal');
+    if (alarmModal) {
+        alarmModal.classList.toggle('hidden');
+        if (!alarmModal.classList.contains('hidden')) {
+            renderAlarmList();
+            // 모든 알람을 읽음 처리
+            alarms.forEach(alarm => alarm.read = true);
+            updateAlarmBadge();
+        }
+    }
+}
+
+function removeAlarm(alarmId) {
+    alarms = alarms.filter(a => a.id !== alarmId);
+    updateAlarmBadge();
+    renderAlarmList();
+}
+
+function clearAllAlarms() {
+    if (confirm('모든 알람을 삭제하시겠습니까?')) {
+        alarms = [];
+        updateAlarmBadge();
+        renderAlarmList();
+    }
+}
+
+// Global functions
+window.toggleAlarmModal = toggleAlarmModal;
+window.removeAlarm = removeAlarm;
+window.clearAllAlarms = clearAllAlarms;
+
+// 모달 외부 클릭 시 닫기
+document.addEventListener('DOMContentLoaded', () => {
+    const alarmModal = document.getElementById('alarm-modal');
+    const alarmButton = document.getElementById('alarm-button');
+    if (alarmModal && alarmButton) {
+        document.addEventListener('click', (e) => {
+            if (!alarmModal.classList.contains('hidden')) {
+                if (!alarmModal.contains(e.target) && !alarmButton.contains(e.target)) {
+                    alarmModal.classList.add('hidden');
+                }
+            }
+        });
+    }
+});
 
 // --- Global Functions (for onclick handlers) ---
 window.editStream = (id) => openModal(id);

@@ -12,7 +12,10 @@ import psutil
 from fastapi import APIRouter, Depends
 
 from sentinel_pipeline.application.stream.manager import StreamManager
-from sentinel_pipeline.interface.api.dependencies import get_stream_manager
+from sentinel_pipeline.interface.api.dependencies import (
+    get_pipeline_engine,
+    get_stream_manager,
+)
 
 router = APIRouter()
 
@@ -107,5 +110,30 @@ async def get_system_stats() -> dict[str, Any]:
                     "memory_mb": 0,
                 }
             }
+        }
+
+
+@router.get("/api/stats/modules")
+async def get_module_stats(
+    pipeline_engine = Depends(get_pipeline_engine),
+) -> dict[str, Any]:
+    """모듈 통계를 반환합니다."""
+    try:
+        module_stats = pipeline_engine.get_module_stats()
+        # FaceBlurModule의 얼굴 감지 수 추가
+        for module_name, stats in module_stats.items():
+            if module_name == "FaceBlurModule":
+                module = pipeline_engine.scheduler._modules.get(module_name)
+                if module and hasattr(module.module, '_current_faces_count'):
+                    stats['faces_detected'] = module.module._current_faces_count
+        return {
+            "success": True,
+            "data": module_stats,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "data": {},
         }
 

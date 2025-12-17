@@ -358,6 +358,7 @@ class FFmpegPublisher:
         """FFmpeg 명령 구성."""
         cmd = [
             "ffmpeg",
+            "-loglevel", "error",  # H.264 디코딩 경고 메시지 필터링 (error 레벨만 표시)
             "-y",  # 덮어쓰기
             "-f", "rawvideo",  # 입력 형식: raw video
             "-vcodec", "rawvideo",

@@ -135,6 +135,7 @@ class FaceBlurModule(BaseModule):
         self._frame_count = 0
         self._last_boxes: list[tuple[int, int, int, int]] = []
         self._face_tracker = FaceTracker(max_age=self.max_age, smoothing=self.smoothing)
+        self._current_faces_count = 0  # 현재 감지된 얼굴 수
 
         # 모델 로드
         self._ensure_model_loaded()
@@ -266,6 +267,9 @@ class FaceBlurModule(BaseModule):
                 stable_boxes = self._face_tracker.tick()
                 self._last_boxes = stable_boxes
 
+            # 현재 감지된 얼굴 수 업데이트
+            self._current_faces_count = len(stable_boxes)
+
             # 블러 처리
             processed_frame = frame.copy()
             for box in stable_boxes:
@@ -322,29 +326,15 @@ class FaceBlurModule(BaseModule):
             expand_x = int(box_width * expand_x_ratio)
             expand_y = int(box_height * expand_y_ratio)
 
-            # 박스 확장 적용
+            # 박스 확장 적용 (얼굴 전체를 확실히 커버하기 위해 더 큰 확장)
+            # 상하 확장을 더 크게 하여 얼굴 전체를 포함
+            expand_x = int(box_width * expand_x_ratio)
+            expand_y = int(box_height * expand_x_ratio * 1.5)  # 세로 확장을 더 크게
+
             x1 = max(0, x1 - expand_x)
             y1 = max(0, y1 - expand_y)
             x2 = min(w, x2 + expand_x)
             y2 = min(h, y2 + expand_y)
-
-            # 머리 부분만 자르기: 상단 60% 영역만 사용
-            head_ratio = 0.6
-            new_height = int((y2 - y1) * head_ratio)
-            y2 = y1 + new_height
-
-            # 세로 길이에 맞춰서 정사각형으로 만들기
-            height = y2 - y1
-            center_x = (x1 + x2) // 2
-            half_size = height // 2
-
-            x1 = max(0, center_x - half_size)
-            x2 = min(w, center_x + half_size)
-
-            # 정사각형이 프레임을 벗어나면 조정
-            if x2 - x1 < height:
-                if x2 - x1 > 0:
-                    y2 = y1 + (x2 - x1)
 
             detections.append((x1, y1, x2, y2))
 
