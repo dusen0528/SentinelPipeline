@@ -229,10 +229,31 @@ class FFmpegPublisher:
             return False
         
         try:
-            # 프레임 크기 확인 및 리사이즈
+            # 프레임 크기 확인 및 리사이즈 (비율 유지)
             if frame.shape[1] != self._width or frame.shape[0] != self._height:
                 import cv2
-                frame = cv2.resize(frame, (self._width, self._height))
+                # 비율을 유지하면서 리사이즈 (잘림 방지)
+                h, w = frame.shape[:2]
+                scale = min(self._width / w, self._height / h)
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                
+                # 비율 유지 리사이즈
+                resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+                
+                # 필요시 패딩 추가 (중앙 정렬)
+                if new_w != self._width or new_h != self._height:
+                    pad_w = (self._width - new_w) // 2
+                    pad_h = (self._height - new_h) // 2
+                    frame = cv2.copyMakeBorder(
+                        resized,
+                        pad_h, self._height - new_h - pad_h,
+                        pad_w, self._width - new_w - pad_w,
+                        cv2.BORDER_CONSTANT,
+                        value=[0, 0, 0]  # 검은색 패딩
+                    )
+                else:
+                    frame = resized
             
             # 큐에 프레임 추가
             try:

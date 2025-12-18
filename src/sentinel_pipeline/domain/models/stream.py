@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 
 
 
@@ -117,6 +118,30 @@ class StreamConfig:
         # -> rtsp://admin:****@host:port/path
         return re.sub(r"(://[^:]+:)[^@]+(@)", r"\1****\2", url)
     
+    @staticmethod
+    def generate_output_url(input_url: str) -> str:
+        """입력 RTSP URL을 기반으로 블러 출력 URL 생성"""
+        parsed = urlparse(input_url.strip())
+        if not parsed.scheme.startswith("rtsp"):
+            raise ValueError("RTSP URL이 아닙니다.")
+        
+        path = parsed.path or ""
+        if not path:
+            raise ValueError("RTSP URL에 경로가 없습니다.")
+        
+        if path.endswith("/"):
+            path = path[:-1]
+        # 마지막 세그먼트에 -blur 추가
+        segments = path.split("/")
+        last = segments[-1]
+        if not last:
+            raise ValueError("RTSP URL 경로가 비어 있습니다.")
+        segments[-1] = f"{last}-blur"
+        new_path = "/".join(segments)
+        
+        port_part = f":{parsed.port}" if parsed.port else ""
+        return f"rtsp://{parsed.hostname}{port_part}{new_path}"
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "StreamConfig":
         """딕셔너리에서 StreamConfig 객체를 생성합니다."""

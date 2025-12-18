@@ -7,184 +7,70 @@ let alarms = []; // 알람 목록
 let previousStreamStates = {}; // 이전 스트림 상태 추적
 let alarmModal = null;
 
-// --- Mock Data ---
-const generateMockStats = () => ({
-    total_streams: 12,
-    running_streams: 9,
-    total_cpu_usage: 42 + Math.random() * 5,
-    total_memory_mb: 2048 + Math.random() * 200,
-    average_fps: 24.5 + Math.random() * 2,
-});
-
-const mockStreams = [
-    { id: "cam_01", name: "Main Entrance", input_url: "rtsp://192.168.1.101/main", output_url: "rtsp://srv:8554/cam_01-blur", status: "running", fps: 24.1, faces_detected: 2, cpu_usage: 12.5, blur_settings: { anonymize_method: 'pixelate', blur_strength: 10 } },
-    { id: "cam_02", name: "Lobby North", input_url: "rtsp://192.168.1.102/lobby", output_url: "rtsp://srv:8554/cam_02-blur", status: "running", fps: 30.0, faces_detected: 5, cpu_usage: 15.2, blur_settings: { anonymize_method: 'blur', blur_strength: 20 } },
-    { id: "cam_03", name: "Parking Lot B", input_url: "rtsp://192.168.1.103/park", output_url: "rtsp://srv:8554/cam_03-blur", status: "stopped", fps: 0, faces_detected: 0, cpu_usage: 0, blur_settings: { anonymize_method: 'solid', blur_strength: 0 } },
-    { id: "cam_04", name: "Warehouse Interior", input_url: "rtsp://192.168.1.104/ware", output_url: "rtsp://srv:8554/cam_04-blur", status: "error", fps: 0, faces_detected: 0, cpu_usage: 0, blur_settings: { anonymize_method: 'pixelate', blur_strength: 15 } },
-    { id: "cam_05", name: "Elevator Hall", input_url: "rtsp://192.168.1.105/elv", output_url: "rtsp://srv:8554/cam_05-blur", status: "running", fps: 15.0, faces_detected: 1, cpu_usage: 8.2, blur_settings: { anonymize_method: 'mosaic', blur_strength: 12 } },
-];
+// --- Global State ---
+let latestDashboardData = null;
 
 // --- API Functions ---
 const api = {
-    getStats: async () => {
+    getDashboardData: async () => {
         if (USE_MOCK_DATA) {
-            return generateMockStats();
+            // Mock data for the new combined structure
+            return {
+                system: { cpu_percent: 45, memory_total_mb: 8192, memory_used_mb: 3000, memory_percent: 36.6 },
+                process: { cpu_percent: 15, memory_mb: 512 },
+                streams: [
+                    { stream_id: "cam_01", status: "RUNNING", is_healthy: true, input_url: "rtsp://192.168.1.101/main", output_url: "rtsp://srv:8554/cam_01-blur", fps: 24.1, avg_latency_ms: 50, frame_count: 1000, event_count: 10, error_count: 0, last_error: null, config: { anonymize_method: 'pixelate', blur_strength: 10 } },
+                    { stream_id: "cam_02", status: "RUNNING", is_healthy: true, input_url: "rtsp://192.168.1.102/lobby", output_url: "rtsp://srv:8554/cam_02-blur", fps: 30.0, avg_latency_ms: 30, frame_count: 2000, event_count: 20, error_count: 0, last_error: null, config: { anonymize_method: 'blur', blur_strength: 20 } },
+                    { stream_id: "cam_03", status: "STOPPED", is_healthy: false, input_url: "rtsp://192.168.1.103/park", output_url: "rtsp://srv:8554/cam_03-blur", fps: 0, avg_latency_ms: 0, frame_count: 0, event_count: 0, error_count: 0, last_error: null, config: { anonymize_method: 'solid', blur_strength: 0 } },
+                    { stream_id: "cam_04", status: "ERROR", is_healthy: false, input_url: "rtsp://192.168.1.104/ware", output_url: "rtsp://srv:8554/cam_04-blur", fps: 0, avg_latency_ms: 0, frame_count: 0, event_count: 0, error_count: 1, last_error: "Connection refused", config: { anonymize_method: 'pixelate', blur_strength: 15 } },
+                    { stream_id: "cam_05", status: "RUNNING", is_healthy: true, input_url: "rtsp://192.168.1.105/elv", output_url: "rtsp://srv:8554/cam_05-blur", fps: 15.0, avg_latency_ms: 70, frame_count: 500, event_count: 5, error_count: 0, last_error: null, config: { anonymize_method: 'mosaic', blur_strength: 12 } },
+                ],
+                modules: { FaceBlurModule: { faces_detected: 7, total_processed: 100, error_count: 0, timeout_count: 0 } }
+            };
         }
         try {
-            // 스트림 통계와 시스템 통계를 병렬로 가져오기
-            const [streamsRes, systemRes] = await Promise.all([
-                fetch(`${API_BASE}/streams`),
-                fetch(`${API_BASE}/stats/system`)
-            ]);
-            
-            const streamsData = await streamsRes.json();
-            const streams = streamsData.data || [];
-            const running = streams.filter(s => s.status === 'RUNNING' || s.status === 'running');
-            const totalFps = streams.reduce((sum, s) => sum + (s.fps || 0), 0);
-            
-            let systemStats = {
-                system_cpu: 0,
-                system_memory_total: 0,
-                system_memory_used: 0,
-                system_memory_percent: 0,
-                process_cpu: 0,
-                process_memory: 0
-            };
-            
-            if (systemRes.ok) {
-                const systemData = await systemRes.json();
-                if (systemData.success && systemData.data) {
-                    systemStats = {
-                        system_cpu: systemData.data.system.cpu_percent || 0,
-                        system_memory_total: systemData.data.system.memory_total_mb || 0,
-                        system_memory_used: systemData.data.system.memory_used_mb || 0,
-                        system_memory_percent: systemData.data.system.memory_percent || 0,
-                        process_cpu: systemData.data.process.cpu_percent || 0,
-                        process_memory: systemData.data.process.memory_mb || 0
-                    };
-                }
+            const res = await fetch(`${API_BASE}/dashboard/stats`);
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || `HTTP ${res.status}`);
             }
-            
-            return {
-                total_streams: streams.length,
-                running_streams: running.length,
-                total_cpu_usage: systemStats.system_cpu,
-                total_memory_mb: systemStats.system_memory_used,
-                total_memory_total_mb: systemStats.system_memory_total,
-                total_memory_percent: systemStats.system_memory_percent,
-                process_cpu_usage: systemStats.process_cpu,
-                process_memory_mb: systemStats.process_memory,
-                average_fps: streams.length > 0 ? totalFps / streams.length : 0,
-            };
+            const data = await res.json();
+            latestDashboardData = data;
+            return data;
         } catch (error) {
-            console.error('Failed to fetch stats:', error);
-            return {
-                total_streams: 0,
-                running_streams: 0,
-                total_cpu_usage: 0,
-                total_memory_mb: 0,
-                total_memory_total_mb: 0,
-                total_memory_percent: 0,
-                process_cpu_usage: 0,
-                process_memory_mb: 0,
-                average_fps: 0,
-            };
+            console.error('Failed to fetch dashboard data:', error);
+            throw error;
         }
     },
-    getStreams: async () => {
-        if (USE_MOCK_DATA) {
-            return mockStreams.map(s => {
-                if (s.status === 'running') {
-                    s.fps = Math.max(0, 24 + (Math.random() * 4 - 2));
-                    s.faces_detected = Math.max(0, s.faces_detected + (Math.random() > 0.8 ? (Math.random() > 0.5 ? 1 : -1) : 0));
-                    s.cpu_usage = 10 + Math.random() * 5;
-                }
-                return s;
-            });
-        }
-        try {
-            // 스트림 목록, 모듈 통계, 시스템 통계를 병렬로 가져오기
-            const [streamsRes, moduleStatsRes, systemStatsRes] = await Promise.all([
-                fetch(`${API_BASE}/streams`),
-                fetch(`${API_BASE}/stats/modules`),
-                fetch(`${API_BASE}/stats/system`)
-            ]);
-            
-            if (!streamsRes.ok) throw new Error(`HTTP ${streamsRes.status}`);
-            const streamsData = await streamsRes.json();
-            const streams = streamsData.data || [];
-            
-            // 모듈 통계 파싱
-            let facesDetected = 0;
-            if (moduleStatsRes.ok) {
-                const moduleData = await moduleStatsRes.json();
-                if (moduleData.success && moduleData.data && moduleData.data.FaceBlurModule) {
-                    facesDetected = moduleData.data.FaceBlurModule.faces_detected || 0;
-                }
-            }
-            
-            // 시스템 통계 파싱 (CPU 사용량용)
-            let cpuUsage = 0;
-            if (systemStatsRes.ok) {
-                const systemData = await systemStatsRes.json();
-                if (systemData.success && systemData.data && systemData.data.process) {
-                    cpuUsage = systemData.data.process.cpu_percent || 0;
-                }
-            }
-            
-            // 각 스트림의 상세 정보를 병렬로 가져오기
-            const streamDetails = await Promise.all(
-                streams.map(async (stream) => {
-                    try {
-                        const detailRes = await fetch(`${API_BASE}/streams/${stream.stream_id}`);
-                        if (!detailRes.ok) {
-                            console.warn(`Failed to fetch details for ${stream.stream_id}`);
-                            return null;
-                        }
-                        const detailData = await detailRes.json();
-                        return detailData.data || null;
-                    } catch (error) {
-                        console.warn(`Error fetching details for ${stream.stream_id}:`, error);
-                        return null;
-                    }
-                })
-            );
-            
-            // API 응답을 프론트엔드 형식으로 변환
-            return streams.map((stream, index) => {
-                const detail = streamDetails[index];
-                const config = detail?.config || {};
-                const status = stream.status.toLowerCase(); // RUNNING -> running
-                
-                // FaceBlurModule 설정 추출
-                const blurSettings = config.blur_settings || {
-                    anonymize_method: 'pixelate',
-                    blur_strength: 31
-                };
-                
-                return {
-                    id: stream.stream_id,
-                    name: stream.stream_id, // stream_id를 이름으로 사용
-                    input_url: config.rtsp_url || '',
-                    output_url: config.output_url || '',
-                    status: status,
-                    fps: stream.fps || 0,
-                    faces_detected: facesDetected, // 모듈 통계에서 가져온 얼굴 감지 수
-                    cpu_usage: cpuUsage, // 시스템 CPU 사용량
-                    blur_settings: blurSettings,
-                    error_message: detail?.last_error || null, // 에러 메시지 추가
-                    last_error: detail?.last_error || null
-        };
-      });
-        } catch (error) {
-            console.error('Failed to fetch streams:', error);
-            return [];
-        }
-    },
+
     controlStream: async (id, action) => {
-        // restart 액션 추가
-        if (action === 'restart') {
-            const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/restart`, { 
+        if (action === 'start') {
+            if (!latestDashboardData) {
+                throw new Error("Dashboard data not loaded yet.");
+            }
+            const stream = latestDashboardData.streams.find(s => s.stream_id === id);
+            if (!stream || !stream.config || !stream.config.rtsp_url) {
+                throw new Error('Stream config not found; please edit stream to set rtsp_url');
+            }
+            const payload = {
+                rtsp_url: stream.config.rtsp_url,
+                output_url: stream.config.output_url || undefined,
+                max_fps: stream.config.max_fps,
+                downscale: stream.config.downscale,
+            };
+            const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(errorText || `HTTP ${res.status}`);
+            }
+            return await res.json();
+        } else {
+             // stop, restart
+            const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/${action}`, { 
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
             });
@@ -194,65 +80,8 @@ const api = {
             }
             return await res.json();
         }
-        if (USE_MOCK_DATA) {
-            const s = mockStreams.find(x => x.id === id);
-            if (s) {
-                if (action === 'start') s.status = 'starting';
-                setTimeout(() => { s.status = action === 'start' ? 'running' : 'stopped'; renderApp(); }, 600);
-            }
-            return { success: true };
-        }
-        try {
-            if (action === 'start') {
-                // 시작 시에는 기존 스트림 설정을 불러와서 payload로 전달해야 422를 피함
-                const detailRes = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}`);
-                if (!detailRes.ok) {
-                    const errText = await detailRes.text();
-                    throw new Error(errText || `Failed to fetch stream config (HTTP ${detailRes.status})`);
-                }
-                const detail = await detailRes.json();
-                const cfg = detail?.data?.config;
-                if (!cfg || !cfg.rtsp_url) {
-                    throw new Error('Stream config not found; please edit stream to set rtsp_url');
-                }
-                const payload = {
-                    rtsp_url: cfg.rtsp_url,
-                    output_url: cfg.output_url || undefined,
-                    max_fps: cfg.max_fps,
-                    downscale: cfg.downscale,
-                };
-                const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-                    const errorText = await res.text();
-                    throw new Error(errorText || `HTTP ${res.status}`);
-                }
-                return await res.json();
-            } else {
-                const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}/${action}`, { 
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'}
-                });
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    throw new Error(errorText || `HTTP ${res.status}`);
-                }
-                return await res.json();
-            }
-        } catch (error) {
-            console.error(`Failed to ${action} stream:`, error);
-            throw error;
-        }
     },
     deleteStream: async (id) => {
-        if (USE_MOCK_DATA) {
-            const idx = mockStreams.findIndex(x => x.id === id);
-            if (idx > -1) mockStreams.splice(idx, 1);
-            return { success: true };
-        }
         // DELETE 엔드포인트 사용
         try {
             const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}`, { 
@@ -270,18 +99,6 @@ const api = {
         }
     },
     saveStream: async (data) => {
-        if (USE_MOCK_DATA) {
-            if (data.id) {
-                const idx = mockStreams.findIndex(x => x.id === data.id);
-                if (idx > -1) mockStreams[idx] = { ...mockStreams[idx], ...data };
-            } else {
-                data.id = `cam_${Date.now()}`;
-                data.status = 'stopped';
-                data.fps = 0; data.faces_detected = 0; data.cpu_usage = 0;
-                mockStreams.push(data);
-            }
-            return { success: true };
-        }
         // 실제 API는 start 엔드포인트 사용
         // stream_id는 name 필드를 사용하거나 자동 생성
         const streamId = data.id || data.name || `stream_${Date.now()}`;
@@ -357,20 +174,24 @@ function getStatusBadge(status) {
 }
 
 function renderStreamCard(s) {
-    const isRunning = s.status === 'running';
-    const isError = s.status === 'error';
-    const isStopped = s.status === 'stopped';
-    const errorMessage = s.error_message || s.last_error || '';
+    const status = s.status.toLowerCase();
+    const isRunning = status === 'running';
+    const isError = status === 'error';
+    const errorMessage = s.last_error || '';
     
+    // Config may not exist on newly created streams from some endpoints
+    const config = s.config || {};
+    const blurSettings = config.blur_settings || { anonymize_method: 'pixelate', blur_strength: 10 };
+
     return `
-    <div class="bg-white rounded-2xl shadow-card hover:shadow-lg hover:ring-2 hover:ring-brand-light/20 border border-gray-100 transition-all duration-300 flex flex-col group animate-fade-in cursor-pointer" data-stream-id="${s.id}" data-status="${s.status}" onclick="openChartModal('${s.id}', '${s.name}')">
+    <div class="bg-white rounded-2xl shadow-card hover:shadow-lg hover:ring-2 hover:ring-brand-light/20 border border-gray-100 transition-all duration-300 flex flex-col group animate-fade-in cursor-pointer" data-stream-id="${s.stream_id}" data-status="${status}" onclick="openChartModal('${s.stream_id}', '${s.stream_id}')">
         <div class="p-5 border-b border-gray-50 flex justify-between items-start">
             <div class="flex-1 min-w-0 pr-3">
-                <h3 class="font-bold text-gray-900 text-base truncate" title="${s.name}">${s.name}</h3>
-                <p class="text-xs text-gray-400 font-mono mt-1 tracking-tight truncate">ID: ${s.id}</p>
+                <h3 class="font-bold text-gray-900 text-base truncate" title="${s.stream_id}">${s.stream_id}</h3>
+                <p class="text-xs text-gray-400 font-mono mt-1 tracking-tight truncate">ID: ${s.stream_id}</p>
                 ${isError && errorMessage ? `<p class="text-xs text-red-600 mt-1 truncate" title="${errorMessage}">⚠️ ${errorMessage}</p>` : ''}
             </div>
-            <div class="flex-shrink-0" data-status-badge>${getStatusBadge(s.status)}</div>
+            <div class="flex-shrink-0" data-status-badge>${getStatusBadge(status)}</div>
         </div>
         <div class="p-4 grid grid-cols-3 gap-3 bg-gray-50/30">
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
@@ -378,12 +199,12 @@ function renderStreamCard(s) {
                 <span class="font-mono text-lg font-bold ${isRunning ? 'text-gray-900' : 'text-gray-300'}" data-metric="fps">${isRunning ? s.fps.toFixed(1) : '-'}</span>
             </div>
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
-                <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">Faces</span>
-                <span class="font-mono text-lg font-bold ${isRunning ? 'text-brand' : 'text-gray-300'}" data-metric="faces">${isRunning ? s.faces_detected : '-'}</span>
+                <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">Latency</span>
+                <span class="font-mono text-lg font-bold ${isRunning ? 'text-brand' : 'text-gray-300'}" data-metric="latency">${isRunning ? s.avg_latency_ms.toFixed(0) : '-'}</span>
             </div>
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
-                <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">CPU</span>
-                <span class="font-mono text-lg font-bold ${isRunning ? 'text-blue-600' : 'text-gray-300'}" data-metric="cpu">${isRunning ? Math.round(Math.min(Math.max(s.cpu_usage || 0, 0), 100)) + '%' : '-'}</span>
+                <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">Errors</span>
+                <span class="font-mono text-lg font-bold ${isRunning && s.error_count > 0 ? 'text-red-600' : 'text-gray-300'}" data-metric="errors">${isRunning ? s.error_count : '-'}</span>
             </div>
         </div>
         <div class="px-5 py-4 space-y-3 flex-1">
@@ -396,22 +217,22 @@ function renderStreamCard(s) {
                 <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate">${s.output_url}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
             </div>
             <div class="pt-2 flex items-center gap-2">
-                <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-md font-medium border border-gray-200 capitalize flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">enhanced_encryption</span>${s.blur_settings.anonymize_method}</span>
-                <span class="text-[10px] text-gray-400 font-bold">STR: ${s.blur_settings.blur_strength}</span>
+                <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-md font-medium border border-gray-200 capitalize flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">enhanced_encryption</span>${(blurSettings.anonymize_method || 'blur')}</span>
+                <span class="text-[10px] text-gray-400 font-bold">STR: ${blurSettings.blur_strength}</span>
             </div>
         </div>
         <div class="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-between items-center gap-3 rounded-b-2xl" onclick="event.stopPropagation()">
             <div class="flex-1">
-                ${s.status === 'running' 
-                    ? `<button onclick="handleAction('${s.id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>` 
-                    : s.status === 'error'
-                    ? `<button onclick="handleRetry('${s.id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>재시도</button>`
-                    : `<button onclick="handleAction('${s.id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`
+                ${status === 'running' 
+                    ? `<button onclick="handleAction('${s.stream_id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>` 
+                    : status === 'error'
+                    ? `<button onclick="handleRetry('${s.stream_id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>Retry</button>`
+                    : `<button onclick="handleAction('${s.stream_id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`
                 }
             </div>
             <div class="flex gap-1">
-                 <button onclick="editStream('${s.id}')" class="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-brand hover:bg-white border border-transparent hover:border-gray-200 rounded-lg transition shadow-none hover:shadow-sm"><span class="material-symbols-outlined text-sm">settings</span></button>
-                 <button onclick="deleteStream('${s.id}')" class="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg transition shadow-none hover:shadow-sm"><span class="material-symbols-outlined text-sm">delete</span></button>
+                 <button onclick="editStream('${s.stream_id}')" class="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-brand hover:bg-white border border-transparent hover:border-gray-200 rounded-lg transition shadow-none hover:shadow-sm"><span class="material-symbols-outlined text-sm">settings</span></button>
+                 <button onclick="deleteStream('${s.stream_id}')" class="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg transition shadow-none hover:shadow-sm"><span class="material-symbols-outlined text-sm">delete</span></button>
             </div>
         </div>
     </div>`;
@@ -420,147 +241,131 @@ function renderStreamCard(s) {
 // No need to store previous data - we always use partial updates
 
 async function renderApp() {
-    const stats = await api.getStats();
-    document.getElementById('stat-total').innerText = stats.total_streams;
-    document.getElementById('stat-running').innerText = stats.running_streams;
+    const data = await api.getDashboardData();
+    const { system, process: proc, streams, modules } = data;
+
+    // --- Update Header Stats ---
+    const runningStreams = streams.filter(s => s.status.toLowerCase() === 'running');
+    const totalFps = runningStreams.reduce((sum, s) => sum + (s.fps || 0), 0);
+    const averageFps = runningStreams.length > 0 ? totalFps / runningStreams.length : 0;
     
-    // CPU 정보 업데이트 (0-100%로 제한)
-    const systemCpu = Math.min(Math.max(stats.total_cpu_usage || 0, 0), 100);
-    const processCpu = Math.min(Math.max(stats.process_cpu_usage || 0, 0), 100);
+    document.getElementById('stat-total').innerText = streams.length;
+    document.getElementById('stat-running').innerText = runningStreams.length;
+    
+    // CPU Info
+    const systemCpu = Math.min(Math.max(system.cpu_percent || 0, 0), 100);
     document.getElementById('stat-cpu').innerText = systemCpu.toFixed(1) + '%';
     document.getElementById('bar-cpu').style.width = systemCpu + '%';
     const processCpuEl = document.getElementById('stat-process-cpu');
     if (processCpuEl) {
-        processCpuEl.innerText = processCpu.toFixed(1) + '%';
+        processCpuEl.innerText = proc.cpu_percent.toFixed(1) + '%';
     }
     
-    // Memory 정보 업데이트
-    const memText = stats.total_memory_total_mb > 0 
-        ? `${Math.round(stats.total_memory_mb)} / ${Math.round(stats.total_memory_total_mb)} MB`
-        : `${Math.round(stats.total_memory_mb)} MB`;
+    // Memory Info
+    const memText = system.memory_total_mb > 0 
+        ? `${Math.round(system.memory_used_mb)} / ${Math.round(system.memory_total_mb)} MB`
+        : `${Math.round(system.memory_used_mb)} MB`;
     document.getElementById('stat-mem').innerText = memText;
-    const memPercent = stats.total_memory_percent || (stats.total_memory_total_mb > 0 
-        ? (stats.total_memory_mb / stats.total_memory_total_mb) * 100 
-        : 0);
+    const memPercent = system.memory_percent || 0;
     document.getElementById('bar-mem').style.width = Math.min(memPercent, 100) + '%';
     const processMemEl = document.getElementById('stat-process-mem');
     if (processMemEl) {
-        processMemEl.innerText = Math.round(stats.process_memory_mb || 0) + ' MB';
+        processMemEl.innerText = Math.round(proc.memory_mb || 0) + ' MB';
     }
     const memPercentEl = document.getElementById('stat-mem-percent');
     if (memPercentEl) {
         memPercentEl.innerText = memPercent.toFixed(1) + '%';
     }
     
-    document.getElementById('stat-fps').innerText = stats.average_fps.toFixed(1);
+    document.getElementById('stat-fps').innerText = averageFps.toFixed(1);
 
-    const streams = await api.getStreams();
+    // --- Update Stream Grid ---
     const grid = document.getElementById('stream-grid');
-    
     if (streams.length === 0) {
-        // Empty state - only update if needed
         if (grid.children.length === 0 || !grid.querySelector('.col-span-full')) {
             grid.innerHTML = `<div class="col-span-full py-16 flex flex-col items-center justify-center text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200 shadow-sm"><div class="p-4 bg-gray-50 rounded-full mb-3"><span class="material-symbols-outlined text-4xl text-gray-300">videocam_off</span></div><p class="font-bold text-gray-600 text-lg">No streams configured</p><button onclick="openModal()" class="mt-6 text-brand hover:text-brand-hover font-bold text-sm bg-brand-bg px-4 py-2 rounded-lg border border-brand/20 transition">Add Stream Now</button></div>`;
         }
     } else {
-        // Check if we need to create cards (new streams added or cards don't exist)
         const existingCardIds = Array.from(grid.querySelectorAll('[data-stream-id]')).map(card => card.getAttribute('data-stream-id'));
-        const newStreamIds = streams.map(s => s.id);
+        const newStreamIds = streams.map(s => s.stream_id);
         const hasNewStreams = newStreamIds.some(id => !existingCardIds.includes(id));
         const hasRemovedStreams = existingCardIds.some(id => !newStreamIds.includes(id));
         
-        // Only re-render if structure changed (new/removed streams)
         if (grid.children.length === 0 || hasNewStreams || hasRemovedStreams) {
             grid.innerHTML = streams.map(renderStreamCard).join('');
         } else {
-            // Always update existing cards without re-rendering (no flicker)
-            updateStreamCards(streams);
+            updateStreamCards(streams, modules);
         }
         
-        // 스트림 상태 변경 감지 및 알람 생성
         checkStreamStatusChanges(streams);
         
-        // 차트 모달이 열려있으면 차트 데이터 업데이트
         if (currentStreamId) {
-            const selectedStream = streams.find(s => s.id === currentStreamId);
+            const selectedStream = streams.find(s => s.stream_id === currentStreamId);
             if (selectedStream) {
-                updateChartData(currentStreamId);
+                updateChartData(selectedStream, modules);
             }
         }
     }
 }
 
 // Update existing stream cards without full re-render
-function updateStreamCards(streams) {
+function updateStreamCards(streams, modules) {
+    // This function now receives the full streams and modules data
+    const facesDetected = modules?.FaceBlurModule?.faces_detected || 0;
+
     streams.forEach(stream => {
-        const card = document.querySelector(`[data-stream-id="${stream.id}"]`);
+        const card = document.querySelector(`[data-stream-id="${stream.stream_id}"]`);
         if (card) {
-            const isRunning = stream.status === 'running';
+            const status = stream.status.toLowerCase();
+            const isRunning = status === 'running';
             
-            // Update FPS
-            const fpsEl = card.querySelector('[data-metric="fps"]');
-            if (fpsEl) {
-                fpsEl.textContent = isRunning ? stream.fps.toFixed(1) : '-';
-                fpsEl.className = `font-mono text-lg font-bold ${isRunning ? 'text-gray-900' : 'text-gray-300'}`;
-            }
+            // Update metrics
+            const updateMetric = (metric, value, format = val => val) => {
+                const el = card.querySelector(`[data-metric="${metric}"]`);
+                if (el) {
+                    el.textContent = isRunning ? format(value) : '-';
+                    el.className = `font-mono text-lg font-bold ${isRunning ? el.dataset.colorRunning : 'text-gray-300'}`;
+                }
+            };
             
-            // Update Faces
-            const facesEl = card.querySelector('[data-metric="faces"]');
-            if (facesEl) {
-                facesEl.textContent = isRunning ? stream.faces_detected : '-';
-                facesEl.className = `font-mono text-lg font-bold ${isRunning ? 'text-brand' : 'text-gray-300'}`;
-            }
-            
-            // Update CPU (0-100%로 제한)
-            const cpuEl = card.querySelector('[data-metric="cpu"]');
-            if (cpuEl) {
-                const cpuValue = Math.min(Math.max(stream.cpu_usage || 0, 0), 100);
-                cpuEl.textContent = isRunning ? Math.round(cpuValue) + '%' : '-';
-                cpuEl.className = `font-mono text-lg font-bold ${isRunning ? 'text-blue-600' : 'text-gray-300'}`;
-            }
-            
-            // Update status badge if status changed
+            updateMetric('fps', stream.fps, v => v.toFixed(1));
+            updateMetric('latency', stream.avg_latency_ms, v => v.toFixed(0));
+            updateMetric('errors', stream.error_count);
+
+
+            // Update status badge and button if status changed
             const statusBadgeContainer = card.querySelector('[data-status-badge]');
             if (statusBadgeContainer) {
                 const currentStatus = card.getAttribute('data-status');
-                if (currentStatus !== stream.status) {
-                    statusBadgeContainer.innerHTML = getStatusBadge(stream.status);
-                    card.setAttribute('data-status', stream.status);
+                if (currentStatus !== status) {
+                    statusBadgeContainer.innerHTML = getStatusBadge(status);
+                    card.setAttribute('data-status', status);
                     
-                    // Update button
-                    const buttonContainer = card.querySelector('.p-4.border-t');
+                    const buttonContainer = card.querySelector('.p-4.border-t .flex-1');
                     if (buttonContainer) {
-                        const buttonDiv = buttonContainer.querySelector('.flex-1');
-                        if (buttonDiv) {
-                            if (stream.status === 'running') {
-                                buttonDiv.innerHTML = `<button onclick="handleAction('${stream.id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>`;
-                            } else if (stream.status === 'error') {
-                                buttonDiv.innerHTML = `<button onclick="handleRetry('${stream.id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>재시도</button>`;
-                            } else {
-                                buttonDiv.innerHTML = `<button onclick="handleAction('${stream.id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`;
-                            }
+                        if (status === 'running') {
+                            buttonContainer.innerHTML = `<button onclick="handleAction('${stream.stream_id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>`;
+                        } else if (status === 'error') {
+                            buttonContainer.innerHTML = `<button onclick="handleRetry('${stream.stream_id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>Retry</button>`;
+                        } else {
+                            buttonContainer.innerHTML = `<button onclick="handleAction('${stream.stream_id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`;
                         }
                     }
                     
-                    // Update error message based on status
                     const nameEl = card.querySelector('h3');
                     const existingErrorEl = card.querySelector('.text-red-600');
-                    
-                    if (stream.status === 'error' && stream.error_message) {
-                        // 에러 상태이고 에러 메시지가 있으면 표시
+                    if (status === 'error' && stream.last_error) {
                         if (nameEl && !existingErrorEl) {
                             const errorEl = document.createElement('p');
                             errorEl.className = 'text-xs text-red-600 mt-1 truncate';
-                            errorEl.title = stream.error_message;
-                            errorEl.textContent = `⚠️ ${stream.error_message}`;
+                            errorEl.title = stream.last_error;
+                            errorEl.textContent = `⚠️ ${stream.last_error}`;
                             nameEl.parentElement.appendChild(errorEl);
-                        } else if (existingErrorEl && stream.error_message) {
-                            // 기존 에러 메시지 업데이트
-                            existingErrorEl.textContent = `⚠️ ${stream.error_message}`;
-                            existingErrorEl.title = stream.error_message;
+                        } else if (existingErrorEl) {
+                            existingErrorEl.textContent = `⚠️ ${stream.last_error}`;
+                            existingErrorEl.title = stream.last_error;
                         }
                     } else if (existingErrorEl) {
-                        // 에러 상태가 아니면 에러 메시지 제거
                         existingErrorEl.remove();
                     }
                 }
@@ -620,50 +425,36 @@ async function openModal(id = null) {
     modal.classList.remove('hidden');
     if(id) {
         document.getElementById('modal-title').innerText = 'Edit Stream';
-        // 실제 API에서 스트림 정보 가져오기
-        if (USE_MOCK_DATA) {
-            const s = mockStreams.find(x => x.id === id);
-            if(s) {
-                document.getElementById('edit-id').value = s.id;
-                document.getElementById('input-name').value = s.name;
-                document.getElementById('input-source').value = s.input_url.replace('rtsp://', '');
-                document.getElementById('input-output').value = s.output_url;
-                document.getElementById('input-method').value = s.blur_settings.anonymize_method;
-                document.getElementById('input-conf').value = s.blur_settings.confidence || DEFAULT_VALUES.confidence;
-                document.getElementById('input-strength').value = s.blur_settings.blur_strength;
-                document.getElementById('strength-val').innerText = s.blur_settings.blur_strength;
+        if (!latestDashboardData) {
+            showToast('Dashboard data not loaded yet.', 'error');
+            return;
+        }
+        const stream = latestDashboardData.streams.find(s => s.stream_id === id);
+        if (stream) {
+            const config = stream.config || {};
+            document.getElementById('edit-id').value = stream.stream_id;
+            document.getElementById('input-name').value = stream.stream_id;
+            document.getElementById('input-source').value = (config.rtsp_url || '').replace('rtsp://', '');
+            document.getElementById('input-output').value = config.output_url || '';
+            document.getElementById('input-max-fps').value = config.max_fps || DEFAULT_VALUES.max_fps;
+            document.getElementById('input-downscale').value = config.downscale || DEFAULT_VALUES.downscale;
+            // These are module-level settings, so we use defaults or global config if available
+            document.getElementById('input-method').value = DEFAULT_VALUES.anonymize_method;
+            document.getElementById('input-conf').value = DEFAULT_VALUES.confidence;
+            document.getElementById('input-strength').value = DEFAULT_VALUES.blur_strength;
+            document.getElementById('strength-val').innerText = DEFAULT_VALUES.blur_strength;
+            const skipIntervalInput = document.getElementById('input-skip-interval');
+            const skipIntervalVal = document.getElementById('skip-interval-val');
+            if (skipIntervalInput) {
+                skipIntervalInput.value = DEFAULT_VALUES.skip_interval;
+                if (skipIntervalVal) skipIntervalVal.innerText = DEFAULT_VALUES.skip_interval;
             }
         } else {
-            try {
-                const res = await fetch(`${API_BASE}/streams/${encodeURIComponent(id)}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const stream = data.data;
-                    const config = stream.config || {};
-                    document.getElementById('edit-id').value = stream.stream_id;
-                    document.getElementById('input-name').value = stream.stream_id;
-                    document.getElementById('input-source').value = (config.rtsp_url || '').replace('rtsp://', '');
-                    document.getElementById('input-output').value = config.output_url || '';
-                    document.getElementById('input-max-fps').value = config.max_fps || DEFAULT_VALUES.max_fps;
-                    document.getElementById('input-downscale').value = config.downscale || DEFAULT_VALUES.downscale;
-                    document.getElementById('input-method').value = DEFAULT_VALUES.anonymize_method;
-                    document.getElementById('input-conf').value = DEFAULT_VALUES.confidence;
-                    document.getElementById('input-strength').value = DEFAULT_VALUES.blur_strength;
-                    document.getElementById('strength-val').innerText = DEFAULT_VALUES.blur_strength;
-                    // skip_interval은 모듈 설정에서 가져와야 함 (현재는 기본값 사용)
-                    const skipIntervalInput = document.getElementById('input-skip-interval');
-                    const skipIntervalVal = document.getElementById('skip-interval-val');
-                    if (skipIntervalInput) {
-                        skipIntervalInput.value = DEFAULT_VALUES.skip_interval;
-                        if (skipIntervalVal) skipIntervalVal.innerText = DEFAULT_VALUES.skip_interval;
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to load stream details:', error);
-                showToast('Failed to load stream details', 'error');
-            }
+            showToast(`Stream with ID ${id} not found`, 'error');
+            closeModal();
         }
     } else {
+        // New stream logic remains the same
         document.getElementById('modal-title').innerText = 'New Stream';
         form.reset();
         document.getElementById('edit-id').value = '';
@@ -986,7 +777,11 @@ async function openChartModal(streamId, streamName) {
     chartModal.classList.remove('hidden');
     
     // 초기 데이터 로드
-    await updateChartData(streamId);
+    const { streams, modules, process: proc } = latestDashboardData;
+    const selectedStream = streams.find(s => s.stream_id === streamId);
+    if (selectedStream) {
+        updateChartData(selectedStream, modules, proc);
+    }
     
     // 주기적으로 차트 업데이트 (2초마다)
     if (chartUpdateInterval) {
@@ -994,74 +789,36 @@ async function openChartModal(streamId, streamName) {
     }
     chartUpdateInterval = setInterval(() => {
         if (currentStreamId && chartModal && !chartModal.classList.contains('hidden')) {
-            updateChartData(currentStreamId);
+            const { streams, modules, process: proc } = latestDashboardData;
+            const selectedStream = streams.find(s => s.stream_id === currentStreamId);
+            if (selectedStream) {
+                updateChartData(selectedStream, modules, proc);
+            }
         }
     }, 2000);
 }
 
-async function updateChartData(streamId) {
-    if (!currentStreamId || currentStreamId !== streamId) return;
+async function updateChartData(stream, modules, proc) {
+    if (!stream || !modules || !proc) return;
     
-    try {
-        const [streamRes, moduleRes, systemRes] = await Promise.all([
-            fetch(`${API_BASE}/streams/${encodeURIComponent(streamId)}`),
-            fetch(`${API_BASE}/stats/modules`),
-            fetch(`${API_BASE}/stats/system`)
-        ]);
-        
-        if (streamRes.ok) {
-            const streamData = await streamRes.json();
-            const stream = streamData.data;
-            
-            // 스트림 상태 확인 (ERROR 또는 STOPPED 상태일 때는 차트 업데이트 안 함)
-            const streamStatus = (stream.status || '').toLowerCase();
-            if (streamStatus === 'error' || streamStatus === 'stopped') {
-                return; // ERROR 또는 STOPPED 상태면 차트 업데이트 중단
-            }
-            
-            let moduleStats = null;
-            let facesDetected = 0;
-            let cpuUsage = 0;
-            
-            if (moduleRes.ok) {
-                const moduleData = await moduleRes.json();
-                if (moduleData.success && moduleData.data) {
-                    moduleStats = moduleData.data;
-                    // FaceBlurModule에서 얼굴 감지 수 가져오기
-                    if (moduleData.data.FaceBlurModule) {
-                        facesDetected = moduleData.data.FaceBlurModule.faces_detected || 0;
-                    }
-                }
-            }
-            
-            if (systemRes.ok) {
-                const systemData = await systemRes.json();
-                if (systemData.success && systemData.data && systemData.data.process) {
-                    cpuUsage = systemData.data.process.cpu_percent || 0;
-                }
-            }
-            
-            // 데이터 준비 (CPU는 0-100%로 제한)
-            const newData = {
-                fps: stream.stats?.fps || 0,
-                faces_detected: facesDetected,
-                cpu_usage: Math.min(Math.max(cpuUsage || 0, 0), 100)
-            };
-            
-            // 이전 데이터와 비교하여 변경된 경우에만 업데이트 (부동소수점 비교를 위해 반올림)
-            const lastData = chartData.lastData || {};
-            const hasChanged = 
-                Math.round(lastData.fps * 10) !== Math.round(newData.fps * 10) ||
-                lastData.faces_detected !== newData.faces_detected ||
-                Math.round(lastData.cpu_usage * 10) !== Math.round(newData.cpu_usage * 10);
-            
-            // 항상 차트 업데이트 (시간이 지나면서 데이터가 추가되어야 함)
-            chartData.lastData = newData;
-            updateCharts(newData, moduleStats);
-        }
-    } catch (error) {
-        console.error('Failed to update charts:', error);
+    // 스트림 상태 확인 (ERROR 또는 STOPPED 상태일 때는 차트 업데이트 안 함)
+    const streamStatus = (stream.status || '').toLowerCase();
+    if (streamStatus === 'error' || streamStatus === 'stopped') {
+        return; // ERROR 또는 STOPPED 상태면 차트 업데이트 중단
     }
+    
+    const facesDetected = modules?.FaceBlurModule?.faces_detected || 0;
+    
+    // 데이터 준비 (CPU는 0-100%로 제한)
+    const newData = {
+        fps: stream.fps || 0,
+        faces_detected: facesDetected,
+        cpu_usage: Math.min(Math.max(proc.cpu_percent || 0, 0), 100)
+    };
+    
+    // 항상 차트 업데이트 (시간이 지나면서 데이터가 추가되어야 함)
+    chartData.lastData = newData;
+    updateCharts(newData, modules);
 }
 
 function closeChartModal() {
@@ -1115,7 +872,7 @@ function showToast(msg, type = 'success') {
 // --- Alarm System Functions ---
 function checkStreamStatusChanges(streams) {
     streams.forEach(stream => {
-        const prevState = previousStreamStates[stream.id];
+        const prevState = previousStreamStates[stream.stream_id];
         const currentStatus = stream.status.toLowerCase();
         
         // 상태 변경 감지
@@ -1124,12 +881,12 @@ function checkStreamStatusChanges(streams) {
             if (currentStatus === 'error' || currentStatus === 'running') {
                 const alarmType = currentStatus === 'error' ? 'error' : 'success';
                 const message = currentStatus === 'error' 
-                    ? `스트림 "${stream.name}"이(가) 오류 상태로 변경되었습니다.`
-                    : `스트림 "${stream.name}"이(가) 라이브 상태로 시작되었습니다.`;
+                    ? `스트림 "${stream.stream_id}"이(가) 오류 상태로 변경되었습니다.`
+                    : `스트림 "${stream.stream_id}"이(가) 라이브 상태로 시작되었습니다.`;
                 
                 addAlarm({
-                    streamId: stream.id,
-                    streamName: stream.name,
+                    streamId: stream.stream_id,
+                    streamName: stream.stream_id,
                     type: alarmType,
                     message: message,
                     timestamp: Date.now()
@@ -1141,9 +898,9 @@ function checkStreamStatusChanges(streams) {
         }
         
         // 현재 상태 저장
-        previousStreamStates[stream.id] = {
+        previousStreamStates[stream.stream_id] = {
             status: currentStatus,
-            name: stream.name
+            name: stream.stream_id
         };
     });
 }

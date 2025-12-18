@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import threading
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 from enum import Enum
 
@@ -105,6 +106,7 @@ class StreamManager:
     # 종료 타임아웃 (초)
     STOP_TIMEOUT_SECONDS = 10.0
     JOIN_TIMEOUT_SECONDS = 5.0
+    MAX_CONCURRENT_STREAMS = 10
     
     def __init__(self) -> None:
         """스트림 관리자 초기화"""
@@ -163,6 +165,8 @@ class StreamManager:
         self,
         stream_id: str,
         rtsp_url: str,
+        wait: bool = False,
+        timeout: float = 10.0,
         **kwargs: Any,
     ) -> StreamState:
         """
@@ -171,15 +175,26 @@ class StreamManager:
         Args:
             stream_id: 스트림 ID
             rtsp_url: RTSP URL
+            wait: RUNNING 상태가 될 때까지 대기할지 여부
+            timeout: 대기 시간 (초)
             **kwargs: 추가 설정 (max_fps, downscale 등)
         
         Returns:
             스트림 상태
         
         Raises:
-            StreamError: 이미 실행 중이거나 시작 실패 시
+            StreamError: 이미 실행 중이거나, 시작 실패, 또는 대기 시간 초과 시
         """
         with self._lock:
+            # 동시 스트림 한도 확인
+            active_streams = self.get_active_streams()
+            if len(active_streams) >= self.MAX_CONCURRENT_STREAMS:
+                raise StreamError(
+                    ErrorCode.RESOURCE_EXHAUSTED,
+                    f"동시 스트림 한도({self.MAX_CONCURRENT_STREAMS}개)를 초과했습니다",
+                    stream_id=stream_id,
+                )
+
             # 이미 존재하는지 확인
             if stream_id in self._streams:
                 ctx = self._streams[stream_id]
@@ -224,8 +239,29 @@ class StreamManager:
             ctx.thread.start()
             
             self._notify_status_change(stream_id, StreamStatus.STARTING)
+
+        if wait:
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                state = self.get_stream_state(stream_id)
+                if state is None:
+                    raise StreamError(ErrorCode.STREAM_NOT_FOUND, "스트림을 찾을 수 없습니다", stream_id=stream_id)
+                if state.status == StreamStatus.RUNNING:
+                    return state
+                if state.status == StreamStatus.ERROR:
+                    raise StreamError(
+                        ErrorCode.STREAM_CONNECTION_FAILED,
+                        state.last_error or "스트림 연결 오류",
+                        stream_id=stream_id,
+                    )
+                time.sleep(0.1)
+            raise StreamError(
+                ErrorCode.TRANSPORT_TIMEOUT,
+                f"{timeout}초 내에 스트림이 RUNNING 상태가 되지 않았습니다",
+                stream_id=stream_id,
+            )
             
-            return ctx.state
+        return ctx.state
     
     def stop_stream(self, stream_id: str, force: bool = False) -> bool:
         """
@@ -280,13 +316,15 @@ class StreamManager:
         
         return True
     
-    def restart_stream(self, stream_id: str) -> StreamState:
+    def restart_stream(self, stream_id: str, wait: bool = False, timeout: float = 10.0) -> StreamState:
         """
         스트림을 재시작합니다.
         
         Args:
             stream_id: 스트림 ID
-        
+            wait: RUNNING 상태가 될 때까지 대기할지 여부
+            timeout: 대기 시간 (초)
+
         Returns:
             스트림 상태
         """
@@ -313,8 +351,54 @@ class StreamManager:
             max_fps=config.max_fps,
             downscale=config.downscale,
             output_url=config.output_url,
+            wait=wait,
+            timeout=timeout,
         )
-    
+
+    def get_or_create_by_input_url(self, rtsp_url: str) -> StreamState:
+        """
+        입력 URL로 스트림을 찾거나 생성하고 실행합니다.
+
+        - 기존 스트림이 있으면:
+          - STOPPED/ERROR 상태면 재시작
+          - RUNNING이면 즉시 상태 반환
+        - 없으면 새로 생성하고 시작
+        - 최종적으로 RUNNING 상태가 될 때까지 10초간 대기 후 상태 반환
+        
+        Args:
+            rtsp_url: 입력 RTSP URL
+
+        Returns:
+            실행된 스트림의 최종 상태
+        
+        Raises:
+            StreamError: 스트림 생성/시작/재시작 실패 또는 타임아웃 시
+        """
+        existing_state = self.get_stream_by_url(rtsp_url)
+
+        if existing_state:
+            stream_id = existing_state.stream_id
+            status = existing_state.status
+            
+            if status in (StreamStatus.STOPPED, StreamStatus.ERROR):
+                return self.restart_stream(stream_id, wait=True)
+            elif status == StreamStatus.RUNNING:
+                return existing_state
+            else: # STARTING, STOPPING 등
+                # 이미 진행 중인 작업이 있으므로 대기
+                return self.start_stream(stream_id, rtsp_url, wait=True)
+
+        # 스트림이 없으면 새로 생성
+        stream_id = f"auto-{str(uuid.uuid4())[:8]}"
+        output_url = StreamConfig.generate_output_url(rtsp_url)
+        
+        return self.start_stream(
+            stream_id=stream_id,
+            rtsp_url=rtsp_url,
+            output_url=output_url,
+            wait=True
+        )
+
     def get_stream_state(self, stream_id: str) -> StreamState | None:
         """스트림 상태를 반환합니다."""
         ctx = self._streams.get(stream_id)
@@ -324,6 +408,15 @@ class StreamManager:
         """모든 스트림 상태를 반환합니다."""
         with self._lock:
             return [ctx.state for ctx in self._streams.values()]
+
+    def get_stream_by_url(self, rtsp_url: str) -> StreamState | None:
+        """RTSP URL로 스트림 상태를 찾습니다."""
+        with self._lock:
+            for state in self.get_all_streams():
+                if state.config.rtsp_url.strip() == rtsp_url.strip():
+                    return state
+        return None
+
     
     def get_active_streams(self) -> list[StreamState]:
         """활성 스트림 상태만 반환합니다."""

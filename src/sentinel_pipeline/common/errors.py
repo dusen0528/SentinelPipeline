@@ -77,19 +77,11 @@ _ERROR_CODE_TO_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.MODULE_TIMEOUT: 504,
     ErrorCode.TRANSPORT_TIMEOUT: 503,  # 타임아웃은 503으로 변경
     
+    ErrorCode.RESOURCE_EXHAUSTED: 429,   # 리소스 부족 (메모리, CPU)
+    
+    # 5xx Server Errors
     ErrorCode.MODULE_FAILED: 500,
     ErrorCode.MODULE_DISABLED: 500,
-    ErrorCode.MODULE_LOAD_FAILED: 500,
-    ErrorCode.STREAM_CONNECTION_FAILED: 502,  # 연결 실패는 502로 변경
-    ErrorCode.STREAM_DECODE_ERROR: 500,
-    ErrorCode.TRANSPORT_FAILED: 500,
-    ErrorCode.RESOURCE_EXHAUSTED: 500,
-    ErrorCode.QUEUE_FULL: 500,
-    ErrorCode.INFERENCE_FAILED: 500,
-    ErrorCode.INFERENCE_MODEL_NOT_FOUND: 404,
-    ErrorCode.INFERENCE_LOAD_FAILED: 500,
-    ErrorCode.INTERNAL_ERROR: 500,
-    ErrorCode.UNKNOWN_ERROR: 500,
 }
 
 
