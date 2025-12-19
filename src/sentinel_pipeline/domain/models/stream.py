@@ -126,7 +126,13 @@ class StreamConfig:
     
     @staticmethod
     def generate_output_url(input_url: str) -> str:
-        """입력 RTSP URL을 기반으로 블러 출력 URL 생성"""
+        """
+        입력 RTSP URL을 기반으로 블러 출력 URL 생성
+        
+        규칙: 마지막 경로 세그먼트에서 마지막 '-' 뒤 부분을 'blur'로 교체
+        예: rtsp://host:port/01057432025-01057432025 -> rtsp://host:port/01057432025-blur
+        예: rtsp://host:port/stream1 -> rtsp://host:port/stream1-blur (하이픈이 없으면 -blur 추가)
+        """
         parsed = urlparse(input_url.strip())
         if not parsed.scheme.startswith("rtsp"):
             raise ValueError("RTSP URL이 아닙니다.")
@@ -137,12 +143,22 @@ class StreamConfig:
         
         if path.endswith("/"):
             path = path[:-1]
-        # 마지막 세그먼트에 -blur 추가
+        
         segments = path.split("/")
         last = segments[-1]
         if not last:
             raise ValueError("RTSP URL 경로가 비어 있습니다.")
-        segments[-1] = f"{last}-blur"
+        
+        # 마지막 '-' 뒤 부분을 'blur'로 교체
+        if "-" in last:
+            # 마지막 '-' 위치 찾기
+            last_dash_idx = last.rfind("-")
+            new_last = last[:last_dash_idx + 1] + "blur"
+        else:
+            # 하이픈이 없으면 그냥 -blur 추가
+            new_last = f"{last}-blur"
+        
+        segments[-1] = new_last
         new_path = "/".join(segments)
         
         port_part = f":{parsed.port}" if parsed.port else ""

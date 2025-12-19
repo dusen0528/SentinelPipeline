@@ -162,7 +162,7 @@ class RTSPDecoder:
                 
                 # FPS가 0이면 기본값 설정
                 if self._fps <= 0:
-                    self._fps = 25.0
+                    self._fps = 30.0
                 
                 self._connected = True
                 self._last_frame_time = time.time()

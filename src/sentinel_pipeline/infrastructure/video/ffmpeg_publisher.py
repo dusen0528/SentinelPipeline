@@ -38,16 +38,16 @@ class FFmpegPublisher:
         output_url: str,
         width: int,
         height: int,
-        fps: int = 15,
+        fps: int = 30,
         codec: str = "libx264",
-        preset: str = "ultrafast",
-        bitrate: str = "2M",
+        preset: str = "veryfast",
+        bitrate: str = "6M",
         pix_fmt: str = "yuv420p",
         log_stderr: bool = False,
         stderr_log_path: str | Path | None = None,
         max_stderr_log_size_mb: int = 10,
         stderr_log_backup_count: int = 3,
-        frame_queue_size: int = 30,
+        frame_queue_size: int = 15,
         drop_policy: str = "drop_oldest",
     ):
         """
@@ -60,14 +60,14 @@ class FFmpegPublisher:
             height: 출력 프레임 높이
             fps: 출력 FPS
             codec: 비디오 코덱 (기본 libx264)
-            preset: 인코딩 프리셋 (기본 ultrafast)
-            bitrate: 출력 비트레이트 (기본 2M)
+            preset: 인코딩 프리셋 (기본 veryfast)
+            bitrate: 출력 비트레이트 (기본 6M)
             pix_fmt: 픽셀 포맷 (기본 yuv420p)
             log_stderr: stderr를 로그 파일로 저장할지 여부 (기본 False)
             stderr_log_path: stderr 로그 파일 경로 (None이면 logs/ffmpeg_{stream_id}.log)
             max_stderr_log_size_mb: stderr 로그 파일 최대 크기 (MB, 기본 10MB)
             stderr_log_backup_count: stderr 로그 백업 파일 수 (기본 3)
-            frame_queue_size: 프레임 큐 크기 (기본 30)
+            frame_queue_size: 프레임 큐 크기 (기본 15)
             drop_policy: 큐 가득 참 시 드롭 정책 ("drop_oldest" 또는 "drop_newest", 기본 drop_oldest)
         """
         self._stream_id = stream_id
@@ -463,10 +463,11 @@ class FFmpegPublisher:
             "-c:v", self._codec,
             "-pix_fmt", self._pix_fmt,
             "-preset", self._preset,
+            "-tune", "zerolatency",  # [추가] 초저지연 모드 (인코딩 버퍼링 제거)
             "-b:v", self._bitrate,
             "-maxrate", self._bitrate,
             "-bufsize", bufsize,  # 버퍼 크기 (bitrate의 2배)
-            "-g", str(self._fps * 2),  # GOP 크기 (2초)
+            "-g", str(self._fps),  # [수정] GOP 크기를 FPS와 1:1로 매칭 (1초 단위 키프레임)
             "-r", str(self._fps),  # 출력 FPS (명시적으로 설정)
             "-f", "rtsp",  # 출력 형식
             "-rtsp_transport", "tcp",
