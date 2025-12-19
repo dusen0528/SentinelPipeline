@@ -161,27 +161,42 @@ function getStatusBadge(status) {
     const styles = {
         running: 'bg-green-50 text-green-700 border-green-200',
         starting: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+        reconnecting: 'bg-orange-50 text-orange-700 border-orange-200',
+        stopping: 'bg-gray-50 text-gray-500 border-gray-200',
         stopped: 'bg-gray-50 text-gray-500 border-gray-200',
-        error: 'bg-red-50 text-red-700 border-red-200'
+        error: 'bg-red-50 text-red-700 border-red-200',
+        idle: 'bg-gray-50 text-gray-400 border-gray-200'
     };
-    const icons = { running: 'fiber_manual_record', starting: 'sync', stopped: 'stop', error: 'error' };
+    const icons = { 
+        running: 'fiber_manual_record', 
+        starting: 'sync', 
+        reconnecting: 'autorenew', 
+        stopping: 'stop', 
+        stopped: 'stop', 
+        error: 'error',
+        idle: 'pause_circle'
+    };
     const label = status === 'running' ? 'LIVE' : status.toUpperCase();
+    const style = styles[status] || styles.stopped;
+    const icon = icons[status] || icons.stopped;
+    
     return `
-    <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-sm ${styles[status] || styles.stopped}">
-        <span class="material-symbols-outlined text-[12px] ${status === 'running' ? 'animate-pulse text-green-600' : ''} ${status === 'starting' ? 'animate-spin' : ''}" style="font-size: 12px;">${icons[status]}</span>
+    <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-sm ${style}">
+        <span class="material-symbols-outlined text-[12px] ${status === 'running' ? 'animate-pulse text-green-600' : ''} ${status === 'starting' || status === 'reconnecting' ? 'animate-spin' : ''}" style="font-size: 12px;">${icon}</span>
         ${label}
     </div>`;
 }
 
 function renderStreamCard(s) {
-    const status = s.status.toLowerCase();
+    const status = (s.status || 'IDLE').toLowerCase();
     const isRunning = status === 'running';
     const isError = status === 'error';
+    const isStarting = status === 'starting' || status === 'reconnecting';
     const errorMessage = s.last_error || '';
     
     // Config may not exist on newly created streams from some endpoints
     const config = s.config || {};
-    const blurSettings = config.blur_settings || { anonymize_method: 'pixelate', blur_strength: 10 };
+    const blurSettings = config.blur_settings || { anonymize_method: 'pixelate', blur_strength: 31 };
 
     return `
     <div class="bg-white rounded-2xl shadow-card hover:shadow-lg hover:ring-2 hover:ring-brand-light/20 border border-gray-100 transition-all duration-300 flex flex-col group animate-fade-in cursor-pointer" data-stream-id="${s.stream_id}" data-status="${status}" onclick="openChartModal('${s.stream_id}', '${s.stream_id}')">
@@ -189,44 +204,46 @@ function renderStreamCard(s) {
             <div class="flex-1 min-w-0 pr-3">
                 <h3 class="font-bold text-gray-900 text-base truncate" title="${s.stream_id}">${s.stream_id}</h3>
                 <p class="text-xs text-gray-400 font-mono mt-1 tracking-tight truncate">ID: ${s.stream_id}</p>
-                ${isError && errorMessage ? `<p class="text-xs text-red-600 mt-1 truncate" title="${errorMessage}">⚠️ ${errorMessage}</p>` : ''}
+                ${(isError || errorMessage) ? `<p class="text-xs text-red-600 mt-1 truncate error-msg" title="${errorMessage}">⚠️ ${errorMessage || 'Unknown Error'}</p>` : ''}
             </div>
             <div class="flex-shrink-0" data-status-badge>${getStatusBadge(status)}</div>
         </div>
         <div class="p-4 grid grid-cols-3 gap-3 bg-gray-50/30">
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
                 <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">FPS</span>
-                <span class="font-mono text-lg font-bold ${isRunning ? 'text-gray-900' : 'text-gray-300'}" data-metric="fps">${isRunning ? s.fps.toFixed(1) : '-'}</span>
+                <span class="font-mono text-lg font-bold ${isRunning ? 'text-gray-900' : 'text-gray-300'}" data-metric="fps" data-color-running="text-gray-900">${isRunning ? s.fps.toFixed(1) : '-'}</span>
             </div>
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
                 <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">Latency</span>
-                <span class="font-mono text-lg font-bold ${isRunning ? 'text-brand' : 'text-gray-300'}" data-metric="latency">${isRunning ? s.avg_latency_ms.toFixed(0) : '-'}</span>
+                <span class="font-mono text-lg font-bold ${isRunning ? 'text-brand' : 'text-gray-300'}" data-metric="latency" data-color-running="text-brand">${isRunning ? s.avg_latency_ms.toFixed(0) : '-'}</span>
             </div>
             <div class="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm flex flex-col items-center">
                 <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">Errors</span>
-                <span class="font-mono text-lg font-bold ${isRunning && s.error_count > 0 ? 'text-red-600' : 'text-gray-300'}" data-metric="errors">${isRunning ? s.error_count : '-'}</span>
+                <span class="font-mono text-lg font-bold ${isRunning && s.error_count > 0 ? 'text-red-600' : 'text-gray-300'}" data-metric="errors" data-color-running="text-red-600">${isRunning ? s.error_count : '-'}</span>
             </div>
         </div>
-        <div class="px-5 py-4 space-y-3 flex-1">
-            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="event.stopPropagation(); copyToClipboard('${s.input_url}')">
+        <div class="px-5 py-4 space-y-3 flex-1 url-container">
+            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="event.stopPropagation(); window.copyToClipboard(this.dataset.url)" data-url-type="input" data-url="${s.input_url || ''}">
                 <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span><span class="text-xs text-gray-500 font-bold">Input</span></div>
-                <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate">${s.input_url}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
+                <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate url-text">${s.input_url || 'N/A'}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
             </div>
-            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="event.stopPropagation(); copyToClipboard('${s.output_url}')">
+            <div class="flex items-center justify-between group/url cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition" onclick="event.stopPropagation(); window.copyToClipboard(this.dataset.url)" data-url-type="output" data-url="${s.output_url || ''}">
                  <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-brand-light"></span><span class="text-xs text-gray-500 font-bold">Output</span></div>
-                <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate">${s.output_url}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
+                <div class="flex items-center gap-1.5 max-w-[140px]"><span class="text-xs text-gray-400 font-mono truncate url-text">${s.output_url || 'N/A'}</span><span class="material-symbols-outlined text-[12px] text-gray-300 group-hover/url:text-brand transition">content_copy</span></div>
             </div>
             <div class="pt-2 flex items-center gap-2">
                 <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-md font-medium border border-gray-200 capitalize flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">enhanced_encryption</span>${(blurSettings.anonymize_method || 'blur')}</span>
                 <span class="text-[10px] text-gray-400 font-bold">STR: ${blurSettings.blur_strength}</span>
             </div>
         </div>
-        <div class="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-between items-center gap-3 rounded-b-2xl" onclick="event.stopPropagation()">
+        <div class="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-between items-center gap-3 rounded-b-2xl btn-container" onclick="event.stopPropagation()">
             <div class="flex-1">
                 ${status === 'running' 
                     ? `<button onclick="handleAction('${s.stream_id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>` 
-                    : status === 'error'
+                    : (status === 'error' || status === 'stopped')
                     ? `<button onclick="handleRetry('${s.stream_id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>Retry</button>`
+                    : isStarting
+                    ? `<button disabled class="w-full flex items-center justify-center gap-1.5 bg-gray-100 text-gray-400 py-2 rounded-xl text-sm font-bold cursor-not-allowed"><span class="material-symbols-outlined text-sm animate-spin">sync</span>Starting...</button>`
                     : `<button onclick="handleAction('${s.stream_id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`
                 }
             </div>
@@ -310,21 +327,22 @@ async function renderApp() {
 
 // Update existing stream cards without full re-render
 function updateStreamCards(streams, modules) {
-    // This function now receives the full streams and modules data
-    const facesDetected = modules?.FaceBlurModule?.faces_detected || 0;
-
     streams.forEach(stream => {
         const card = document.querySelector(`[data-stream-id="${stream.stream_id}"]`);
         if (card) {
-            const status = stream.status.toLowerCase();
+            const status = (stream.status || 'IDLE').toLowerCase();
             const isRunning = status === 'running';
+            const isError = status === 'error';
+            const isStarting = status === 'starting' || status === 'reconnecting';
+            const errorMessage = stream.last_error || '';
             
             // Update metrics
             const updateMetric = (metric, value, format = val => val) => {
                 const el = card.querySelector(`[data-metric="${metric}"]`);
                 if (el) {
                     el.textContent = isRunning ? format(value) : '-';
-                    el.className = `font-mono text-lg font-bold ${isRunning ? el.dataset.colorRunning : 'text-gray-300'}`;
+                    const colorClass = isRunning ? (el.dataset.colorRunning || 'text-gray-900') : 'text-gray-300';
+                    el.className = `font-mono text-lg font-bold ${colorClass}`;
                 }
             };
             
@@ -332,6 +350,19 @@ function updateStreamCards(streams, modules) {
             updateMetric('latency', stream.avg_latency_ms, v => v.toFixed(0));
             updateMetric('errors', stream.error_count);
 
+            // Update URLs and copy data
+            const inputContainer = card.querySelector('[data-url-type="input"]');
+            const outputContainer = card.querySelector('[data-url-type="output"]');
+            if (inputContainer) {
+                inputContainer.dataset.url = stream.input_url || '';
+                const textEl = inputContainer.querySelector('.url-text');
+                if (textEl) textEl.textContent = stream.input_url || 'N/A';
+            }
+            if (outputContainer) {
+                outputContainer.dataset.url = stream.output_url || '';
+                const textEl = outputContainer.querySelector('.url-text');
+                if (textEl) textEl.textContent = stream.output_url || 'N/A';
+            }
 
             // Update status badge and button if status changed
             const statusBadgeContainer = card.querySelector('[data-status-badge]');
@@ -341,34 +372,42 @@ function updateStreamCards(streams, modules) {
                     statusBadgeContainer.innerHTML = getStatusBadge(status);
                     card.setAttribute('data-status', status);
                     
-                    const buttonContainer = card.querySelector('.p-4.border-t .flex-1');
+                    const buttonContainer = card.querySelector('.btn-container .flex-1');
                     if (buttonContainer) {
                         if (status === 'running') {
                             buttonContainer.innerHTML = `<button onclick="handleAction('${stream.stream_id}', 'stop')" class="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-200 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"><span class="material-symbols-outlined text-sm">stop_circle</span>Stop</button>`;
-                        } else if (status === 'error') {
+                        } else if (status === 'error' || status === 'stopped') {
                             buttonContainer.innerHTML = `<button onclick="handleRetry('${stream.stream_id}')" class="w-full flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-xl text-sm font-bold transition shadow-md active:scale-95"><span class="material-symbols-outlined text-sm">refresh</span>Retry</button>`;
+                        } else if (isStarting) {
+                            buttonContainer.innerHTML = `<button disabled class="w-full flex items-center justify-center gap-1.5 bg-gray-100 text-gray-400 py-2 rounded-xl text-sm font-bold cursor-not-allowed"><span class="material-symbols-outlined text-sm animate-spin">sync</span>Starting...</button>`;
                         } else {
                             buttonContainer.innerHTML = `<button onclick="handleAction('${stream.stream_id}', 'start')" class="w-full flex items-center justify-center gap-1.5 bg-brand text-white hover:bg-brand-hover py-2 rounded-xl text-sm font-bold transition shadow-md shadow-teal-700/10 active:scale-95"><span class="material-symbols-outlined text-sm">play_circle</span>Start</button>`;
                         }
                     }
-                    
-                    const nameEl = card.querySelector('h3');
-                    const existingErrorEl = card.querySelector('.text-red-600');
-                    if (status === 'error' && stream.last_error) {
-                        if (nameEl && !existingErrorEl) {
-                            const errorEl = document.createElement('p');
-                            errorEl.className = 'text-xs text-red-600 mt-1 truncate';
-                            errorEl.title = stream.last_error;
-                            errorEl.textContent = `⚠️ ${stream.last_error}`;
-                            nameEl.parentElement.appendChild(errorEl);
-                        } else if (existingErrorEl) {
-                            existingErrorEl.textContent = `⚠️ ${stream.last_error}`;
-                            existingErrorEl.title = stream.last_error;
-                        }
-                    } else if (existingErrorEl) {
-                        existingErrorEl.remove();
-                    }
                 }
+            }
+
+            // Always update error message if it exists
+            const nameEl = card.querySelector('h3');
+            const existingErrorEl = card.querySelector('.error-msg');
+            if ((isError || errorMessage) && nameEl) {
+                const displayMsg = errorMessage || (isError ? 'Unknown Error' : '');
+                if (displayMsg) {
+                    if (!existingErrorEl) {
+                        const errorEl = document.createElement('p');
+                        errorEl.className = 'text-xs text-red-600 mt-1 truncate error-msg';
+                        errorEl.title = displayMsg;
+                        errorEl.textContent = `⚠️ ${displayMsg}`;
+                        nameEl.parentElement.appendChild(errorEl);
+                    } else {
+                        existingErrorEl.textContent = `⚠️ ${displayMsg}`;
+                        existingErrorEl.title = displayMsg;
+                    }
+                } else if (existingErrorEl) {
+                    existingErrorEl.remove();
+                }
+            } else if (existingErrorEl) {
+                existingErrorEl.remove();
             }
         }
     });
@@ -851,9 +890,48 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- Utility Functions ---
-function copyToClipboard(text) { 
-    navigator.clipboard.writeText(text); 
-    showToast('Copied', 'success'); 
+window.copyToClipboard = function(text) { 
+    if (!text || text === 'N/A' || text === 'undefined') {
+        showToast('No URL to copy', 'error');
+        return;
+    }
+    
+    console.log('Attempting to copy:', text);
+    
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('Copied to clipboard', 'success');
+        }).catch(err => {
+            console.error('Failed to copy via navigator.clipboard:', err);
+            fallbackCopyToClipboard(text);
+        });
+    } else {
+        fallbackCopyToClipboard(text);
+    }
+};
+
+function fallbackCopyToClipboard(text) {
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+            showToast('Copied to clipboard', 'success');
+        } else {
+            showToast('Failed to copy', 'error');
+        }
+    } catch (err) {
+        console.error('Fallback copy failed:', err);
+        showToast('Failed to copy', 'error');
+    }
 }
 
 function showToast(msg, type = 'success') {

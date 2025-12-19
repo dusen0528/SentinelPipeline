@@ -262,6 +262,32 @@ class PipelineEngine:
                     enabled=module.enabled,
                 )
     
+    def reconfigure_all_modules(self, width: int, height: int) -> None:
+        """
+        모든 등록된 모듈의 설정을 동적으로 재구성합니다.
+
+        Args:
+            width: 새로운 프레임 너비
+            height: 새로운 프레임 높이
+        """
+        logger.info(
+            f"모든 파이프라인 모듈 재설정 시작 -> {width}x{height}",
+            new_width=width,
+            new_height=height,
+        )
+        with self._lock:
+            all_modules = self.scheduler.get_all_modules()
+            for context in all_modules:
+                try:
+                    context.module.reconfigure(width, height)
+                except Exception as e:
+                    logger.error(
+                        f"모듈 재설정 오류: {context.module.name}",
+                        module_name=context.module.name,
+                        error=str(e),
+                    )
+        logger.info("모든 파이프라인 모듈 재설정 완료")
+
     def enable_module(self, name: str) -> bool:
         """모듈을 활성화합니다."""
         return self.scheduler.enable_module(name)

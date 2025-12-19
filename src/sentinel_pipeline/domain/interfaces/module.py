@@ -180,6 +180,19 @@ class ModuleBase(Protocol):
             ...     return events, metadata
         """
         ...
+    
+    def reconfigure(self, width: int, height: int) -> None:
+        """
+        모듈의 설정을 동적으로 재구성합니다.
+        
+        스트림 해상도 변경과 같이 런타임에 모듈의 내부 상태를
+        조정해야 할 때 호출됩니다.
+        
+        Args:
+            width: 새로운 프레임 너비
+            height: 새로운 프레임 높이
+        """
+        ...
 
 
 class ModuleContext:
@@ -339,6 +352,19 @@ class BaseModule:
             raise TypeError(
                 f"{self.__class__.__name__}는 'timeout_ms' 속성을 정의해야 합니다"
             )
+    
+    def reconfigure(self, width: int, height: int) -> None:
+        """
+        모듈의 설정을 동적으로 재구성합니다.
+        
+        하위 클래스에서 필요 시 이 메서드를 구현하여 해상도 변경 등에
+        대응할 수 있습니다. 기본 구현은 아무 작업도 하지 않습니다.
+        
+        Args:
+            width: 새로운 프레임 너비
+            height: 새로운 프레임 높이
+        """
+        pass
     
     def process_frame(
         self,

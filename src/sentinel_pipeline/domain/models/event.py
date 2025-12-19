@@ -48,6 +48,7 @@ class EventType(str, Enum):
     
     # 시스템 관련
     SYSTEM_ALERT = "SYSTEM_ALERT"       # 시스템 알림
+    SYSTEM_RESOLUTION_CHANGED = "SYSTEM_RESOLUTION_CHANGED"  # 스트림 해상도 변경
     CUSTOM = "CUSTOM"                   # 사용자 정의
 
 

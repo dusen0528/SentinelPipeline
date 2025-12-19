@@ -169,6 +169,8 @@ class ConfigLoader:
             queue_max=global_cfg.queue_max,
             drop_strategy=global_cfg.drop_strategy,
             inference_timeout_ms=global_cfg.inference_timeout_ms,
+            target_width=global_cfg.target_width,
+            target_height=global_cfg.target_height,
         )
 
         return RuntimeAppConfig(
@@ -207,6 +209,8 @@ class ConfigLoader:
                     reconnect_max_delay=stream.reconnect_max_delay,
                     output_url=stream.output_url,
                     output_enabled=stream.output_enabled,
+                    target_width=stream.target_width,
+                    target_height=stream.target_height,
                 )
             )
         return streams

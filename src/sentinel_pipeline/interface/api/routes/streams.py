@@ -15,8 +15,11 @@ from pydantic import BaseModel, Field
 
 from sentinel_pipeline.application.stream.manager import StreamManager
 from sentinel_pipeline.common.errors import ErrorCode, StreamError
+from sentinel_pipeline.common.logging import get_logger
 from sentinel_pipeline.domain.models.stream import StreamStatus, StreamConfig
 from sentinel_pipeline.interface.api.dependencies import get_stream_manager
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/streams", tags=["streams"])
 
@@ -97,13 +100,115 @@ def _validate_rtsp_url(url: str) -> str:
         raise StreamError(ErrorCode.CONFIG_INVALID, "RTSP URL 경로가 비어 있습니다", stream_id="auto")
     return trimmed
 
+# === 개선된 유틸 함수 ===
+
+async def _wait_for_stream_running(manager: StreamManager, stream_id: str) -> str:
+    """
+    스트림이 RUNNING 상태가 될 때까지 대기하고, 최종 output_url을 반환합니다.
+    실패 시 StreamError를 발생시킵니다.
+    """
+    deadline = time.time() + WAIT_TIMEOUT_SECONDS
+    
+    while time.time() < deadline:
+        state = manager.get_stream_state(stream_id)
+        if not state:
+            raise StreamError(
+                ErrorCode.STREAM_NOT_FOUND,
+                f"스트림 소멸됨: {stream_id}",
+                stream_id=stream_id
+            )
+        
+        if state.status == StreamStatus.RUNNING:
+            # 설정된 output_url이 있으면 우선 사용, 없으면 생성 규칙 따름
+            return state.config.output_url or StreamConfig.generate_output_url(state.config.rtsp_url)
+        
+        if state.status == StreamStatus.ERROR:
+            raise StreamError(
+                ErrorCode.STREAM_CONNECTION_FAILED,
+                f"스트림 시작 실패 (ERROR): {state.last_error or 'Unknown'}",
+                stream_id=stream_id
+            )
+            
+        time.sleep(WAIT_POLL_SECONDS)
+
+    raise StreamError(
+        ErrorCode.TRANSPORT_TIMEOUT,
+        f"{WAIT_TIMEOUT_SECONDS}초 내에 스트림이 준비되지 않았습니다.",
+        stream_id=stream_id
+    )
+
 # === 라우트 ===
+# 주의: 구체적인 경로(/by-input)를 동적 경로(/{stream_id})보다 먼저 등록해야 합니다.
 
 @router.get("", response_model=StreamListResponse)
 async def list_streams(manager: StreamManager = Depends(get_stream_manager)) -> StreamListResponse:
     """모든 스트림 상태를 조회합니다."""
     states = manager.get_all_streams()
     return StreamListResponse(data=[_state_to_summary(s) for s in states])
+
+
+@router.get("/by-input", response_model=StreamControlResponse)
+async def get_output_url_by_input(
+    input_url: str = Query(..., description="입력 RTSP URL"),
+    manager: StreamManager = Depends(get_stream_manager),
+) -> StreamControlResponse:
+    """
+    입력 URL로 스트림을 찾거나 생성하고, 출력 URL을 반환합니다.
+    
+    - 기존 스트림이 있으면: 출력 URL만 반환 (상태와 무관)
+    - 스트림이 없으면: 새로 생성하고 출력 URL 반환
+    """
+    validated_input = _validate_rtsp_url(input_url)
+    
+    # 1. 기존 스트림 조회
+    state = manager.get_stream_by_url(validated_input)
+    
+    if state:
+        # 기존 스트림이 있으면 출력 URL만 반환
+        output_url = state.config.output_url or StreamConfig.generate_output_url(validated_input)
+        return StreamControlResponse(data={
+            "stream_id": state.stream_id,
+            "input_url": validated_input,
+            "output_url": output_url,
+            "name": state.stream_id,
+            "status": state.status.value,
+            "message": "기존 스트림을 찾았습니다."
+        })
+    
+    # 2. 스트림이 없으면 새로 생성
+    new_stream_id = f"auto-{str(uuid.uuid4())[:8]}"
+    
+    try:
+        manager.start_stream(
+            stream_id=new_stream_id,
+            rtsp_url=validated_input,
+            wait=False
+        )
+        
+        # 3. RUNNING 대기 및 URL 획득
+        final_output_url = await _wait_for_stream_running(manager, new_stream_id)
+        
+        return StreamControlResponse(data={
+            "stream_id": new_stream_id,
+            "input_url": validated_input,
+            "output_url": final_output_url,
+            "name": new_stream_id,
+            "status": "running",
+            "message": "새로운 스트림이 생성되었습니다."
+        })
+        
+    except Exception as e:
+        # 실패 시 정리 시도
+        try:
+            manager.stop_stream(new_stream_id, force=False)
+            manager.delete_stream(new_stream_id)
+        except:
+            pass
+        raise StreamError(
+            ErrorCode.STREAM_CONNECTION_FAILED if not isinstance(e, StreamError) else e.code,
+            f"입력 URL '{input_url}'로 스트림을 생성할 수 없습니다: {e}",
+            stream_id="auto",
+        ) from e
 
 
 @router.get("/{stream_id}", response_model=StreamDetailResponse)
@@ -179,55 +284,49 @@ async def restart_stream(
     return StreamControlResponse(data=_state_to_dict(state))
 
 
-@router.delete("/{stream_id}", response_model=StreamControlResponse)
-async def delete_stream(
+
+
+
+
+
+@router.post("/{stream_id}/disconnect", response_model=StreamControlResponse)
+async def disconnect_stream(
     stream_id: str,
     manager: StreamManager = Depends(get_stream_manager),
 ) -> StreamControlResponse:
     """
-    스트림을 삭제합니다.
+    스트림을 중지하고 모든 리소스를 정리한 후 삭제합니다.
     
-    스트림이 실행 중이면 먼저 중지한 후 삭제합니다.
+    동작 순서:
+    1. 스트림 중지 요청 (정상 종료 시도)
+    2. 스레드 종료 대기 (최대 5초)
+    3. 리소스 정리 (디코더, 퍼블리셔 해제)
+    4. 스트림 삭제 (메모리에서 제거)
+    
+    주의: 네트워크 I/O 블로킹 중이면 5초 이상 걸릴 수 있습니다.
     """
-    manager.delete_stream(stream_id)
+    # 존재 여부 확인
+    if not manager.get_stream_state(stream_id):
+        raise StreamError(
+            ErrorCode.STREAM_NOT_FOUND,
+            "스트림이 없습니다.",
+            stream_id=stream_id
+        )
+
+    # 중지 및 삭제 (예외 처리 포함)
+    try:
+        # 정상 종료 시도 (force=False로 변경 - 실제로 force는 의미 없음)
+        manager.stop_stream(stream_id, force=False)
+        manager.delete_stream(stream_id)
+    except Exception as e:
+        # 이미 삭제되었거나 하는 경우에도 성공 응답
+        # (리소스는 정리되었을 가능성이 높음)
+        logger.warning(f"disconnect 중 예외 발생 (무시): {stream_id} - {e}")
+    
     return StreamControlResponse(data={
         "stream_id": stream_id,
-        "status": "DELETED",
-        "message": "스트림이 삭제되었습니다",
+        "status": "DISCONNECTED",
+        "message": "연결이 완전히 종료되었습니다."
     })
 
 
-
-
-
-@router.get("/by-input", response_model=StreamControlResponse)
-async def get_output_url_by_input(
-    input_url: str = Query(..., description="입력 RTSP URL"),
-    manager: StreamManager = Depends(get_stream_manager),
-) -> StreamControlResponse:
-    """
-    입력 RTSP URL로 스트림을 찾거나 생성하고, 실행 상태로 만듭니다.
-    
-    - 기존 스트림이 있으면 재시작하거나 현재 상태 반환
-    - 없으면 새로 생성하고 시작
-    - 최종적으로 RUNNING 상태가 될 때까지 10초간 대기
-    """
-    # RTSP URL 형식 검증
-    validated_input = _validate_rtsp_url(input_url)
-
-    try:
-        final_state = manager.get_or_create_by_input_url(validated_input)
-        output_url = final_state.config.output_url or StreamConfig.generate_output_url(validated_input)
-        
-        data = {
-            "input_url": validated_input,
-            "output_url": output_url,
-            **_state_to_dict(final_state),
-        }
-        return StreamControlResponse(data=data)
-    except (StreamError, ValueError) as e:
-        raise StreamError(
-            e.code if isinstance(e, StreamError) else ErrorCode.STREAM_CONNECTION_FAILED,
-            f"입력 URL '{input_url}'로 스트림을 생성/실행할 수 없습니다: {e}",
-            stream_id="auto",
-        ) from e

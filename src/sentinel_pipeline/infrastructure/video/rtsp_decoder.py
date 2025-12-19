@@ -16,8 +16,10 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from sentinel_pipeline.application.event.emitter import EventEmitter
 from sentinel_pipeline.common.errors import ErrorCode, StreamError
 from sentinel_pipeline.common.logging import get_logger
+from sentinel_pipeline.domain.models.event import Event, EventStage, EventType
 
 # FFmpeg 로그 레벨 설정 (H.264 디코딩 경고 메시지 필터링)
 # error 레벨만 표시하여 corrupted macroblock 등의 경고 숨김
@@ -35,10 +37,11 @@ class RTSPDecoder:
     OpenCV의 VideoCapture를 사용하여 RTSP 스트림을 읽습니다.
     스레드 안전하지 않으므로 단일 스레드에서만 사용해야 합니다.
     """
-    
+
     def __init__(
         self,
         stream_id: str,
+        event_emitter: EventEmitter,
         buffer_size: int = 2,
         connection_timeout_ms: int = 10000,
         read_timeout_ms: int = 5000,
@@ -48,11 +51,13 @@ class RTSPDecoder:
         
         Args:
             stream_id: 스트림 식별자 (로깅용)
+            event_emitter: 이벤트 발행기
             buffer_size: OpenCV 버퍼 크기 (기본 2)
             connection_timeout_ms: 연결 타임아웃 (밀리초)
             read_timeout_ms: 프레임 읽기 타임아웃 (밀리초)
         """
         self._stream_id = stream_id
+        self._event_emitter = event_emitter
         self._buffer_size = buffer_size
         self._connection_timeout_ms = connection_timeout_ms
         self._read_timeout_ms = read_timeout_ms
@@ -149,6 +154,12 @@ class RTSPDecoder:
                 self._height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 self._fps = self._cap.get(cv2.CAP_PROP_FPS)
                 
+                # [로그 추가] 실제 감지된 해상도 출력
+                self._logger.info(
+                    f"RTSP 스트림 해상도 감지: {self._width}x{self._height} @ {self._fps} FPS",
+                    stream_id=self._stream_id
+                )
+                
                 # FPS가 0이면 기본값 설정
                 if self._fps <= 0:
                     self._fps = 25.0
@@ -207,6 +218,30 @@ class RTSPDecoder:
             
             # 성공 시 타임스탬프 업데이트
             self._last_frame_time = time.time()
+            
+            # 해상도 변경 감지
+            new_height, new_width, _ = frame.shape
+            if new_width != self._width or new_height != self._height:
+                self._logger.warning(
+                    "RTSP 스트림 해상도 변경 감지",
+                    old_resolution=f"{self._width}x{self._height}",
+                    new_resolution=f"{new_width}x{new_height}",
+                )
+                # 내부 상태 업데이트
+                self._width = new_width
+                self._height = new_height
+                
+                # 이벤트 발행
+                event = Event(
+                    type=EventType.SYSTEM_RESOLUTION_CHANGED,
+                    stage=EventStage.CONFIRMED,
+                    confidence=1.0,
+                    stream_id=self._stream_id,
+                    module_name="RTSPDecoder",
+                    details={"width": new_width, "height": new_height},
+                )
+                self._event_emitter.emit(event)
+            
             return True, frame
             
         except Exception as e:

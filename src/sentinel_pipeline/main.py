@@ -196,15 +196,24 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
     # 5. StreamManager 초기화
     stream_manager = StreamManager()
     
+    # 종속성 주입 (이벤트 핸들링용)
+    stream_manager.set_dependencies(
+        pipeline_engine=pipeline_engine, event_emitter=event_emitter
+    )
+    
     # 전역 설정 적용
     stream_manager.apply_global_config(
         max_fps=global_cfg.max_fps,
         downscale=global_cfg.downscale,
+        target_width=global_cfg.target_width,
+        target_height=global_cfg.target_height,
     )
     
     # 디코더/퍼블리셔 팩토리 설정
     def create_decoder(stream_id: str | None = None):
-        return RTSPDecoder(stream_id=stream_id or "unknown")
+        return RTSPDecoder(
+            stream_id=stream_id or "unknown", event_emitter=event_emitter
+        )
     
     def create_publisher(
         stream_id: str | None = None,
@@ -256,6 +265,8 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
                     max_fps=stream_config.max_fps,
                     downscale=stream_config.downscale,
                     output_url=stream_config.output_url,
+                    target_width=stream_config.target_width,
+                    target_height=stream_config.target_height,
                 )
                 logger.info(f"초기 스트림 시작: {stream_config.stream_id}")
             except Exception as e:
@@ -326,6 +337,8 @@ def apply_bundle_to_components(
         stream_manager.apply_global_config(
             max_fps=global_cfg.get("max_fps", 15),
             downscale=global_cfg.get("downscale", 0.5),
+            target_width=global_cfg.get("target_width"),
+            target_height=global_cfg.get("target_height"),
         )
         logger.info("StreamManager 전역 설정 재적용 완료")
 

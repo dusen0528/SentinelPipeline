@@ -25,7 +25,7 @@
         "name": "FaceBlurModule",
         "enabled": true,
         "priority": 200,
-        "timeout_ms": 100,
+        "timeout_ms": 250,
         "options": {
           "model_path": "models/yolov8n-face.pt",
           "use_person_detection": false,
@@ -34,7 +34,7 @@
           "pixelate_size": 10,
           "blur_strength": 31,
           "imgsz": 320,
-          "skip_interval": 2,
+          "skip_interval": 5,
           "max_age": 50,
           "smoothing": 0.5,
           "iou_threshold": 0.35,
@@ -44,8 +44,8 @@
     ],
   
     "global": {
-      "max_fps": 15,
-      "downscale": 0.5,
+      "max_fps": 30,
+      "downscale": 1.0,
       "queue_max": 2,
       "drop_strategy": "drop_oldest",
       "inference_timeout_ms": 50,
