@@ -54,7 +54,7 @@ class StreamConfig(BaseModel):
     stream_id: str = Field(..., description="스트림 고유 ID")
     rtsp_url: str = Field(..., description="RTSP URL")
     enabled: bool = Field(True, description="활성화 여부")
-    max_fps: int = Field(15, description="최대 FPS")
+    max_fps: int = Field(30, description="최대 FPS")
     downscale: float = Field(1.0, description="프레임 축소 비율 (0~1)")
     buffer_size: int = Field(2, description="프레임 버퍼 크기")
 
@@ -222,7 +222,7 @@ class GlobalConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
-    max_fps: int = Field(15, description="최대 FPS")
+    max_fps: int = Field(30, description="최대 FPS")
     downscale: float = Field(0.5, description="프레임 축소 비율")
     queue_max: int = Field(2, description="프레임 큐 최대 크기")
     drop_strategy: Literal["drop_oldest", "drop_newest"] = Field(

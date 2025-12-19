@@ -62,6 +62,12 @@ class StreamStartRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class StreamRegisterRequest(BaseModel):
+    rtsp_url: str = Field(..., description="RTSP URL")
+
+    model_config = {"extra": "forbid"}
+
+
 # === 유틸 ===
 
 
@@ -101,6 +107,26 @@ def _validate_rtsp_url(url: str) -> str:
     return trimmed
 
 # === 개선된 유틸 함수 ===
+
+def _disconnect_stream_internal(manager: StreamManager, stream_id: str) -> None:
+    """
+    스트림을 중지하고 모든 리소스를 정리한 후 삭제합니다 (내부 헬퍼).
+    
+    """
+    # 존재 여부 확인
+    if not manager.get_stream_state(stream_id):
+        # 이미 없으면 그냥 반환 (에러 발생 안 함)
+        return
+
+    # 중지 및 삭제 (예외 처리 포함)
+    try:
+        manager.stop_stream(stream_id, force=False)
+        manager.delete_stream(stream_id)
+    except Exception as e:
+        # 이미 삭제되었거나 하는 경우에도 무시
+        # (리소스는 정리되었을 가능성이 높음)
+        logger.warning(f"disconnect 중 예외 발생 (무시): {stream_id} - {e}")
+
 
 async def _wait_for_stream_running(manager: StreamManager, stream_id: str) -> str:
     """
@@ -313,20 +339,79 @@ async def disconnect_stream(
             stream_id=stream_id
         )
 
-    # 중지 및 삭제 (예외 처리 포함)
-    try:
-        # 정상 종료 시도 (force=False로 변경 - 실제로 force는 의미 없음)
-        manager.stop_stream(stream_id, force=False)
-        manager.delete_stream(stream_id)
-    except Exception as e:
-        # 이미 삭제되었거나 하는 경우에도 성공 응답
-        # (리소스는 정리되었을 가능성이 높음)
-        logger.warning(f"disconnect 중 예외 발생 (무시): {stream_id} - {e}")
+    # 중지 및 삭제 (내부 헬퍼 함수 사용)
+    _disconnect_stream_internal(manager, stream_id)
     
     return StreamControlResponse(data={
         "stream_id": stream_id,
         "status": "DISCONNECTED",
         "message": "연결이 완전히 종료되었습니다."
     })
+
+
+@router.post("/register", response_model=StreamControlResponse)
+async def register_stream(
+    payload: StreamRegisterRequest,
+    manager: StreamManager = Depends(get_stream_manager),
+) -> StreamControlResponse:
+    """
+    입력 RTSP URL로 스트림을 강제로 재등록합니다.
+    
+    동작:
+    1. 입력 RTSP URL로 기존 스트림 검색
+    2. 기존 스트림이 있으면: 연결 끊기 → 새로 등록 → RUNNING 대기 → 출력 URL 반환
+    3. 스트림이 없으면: 새로 등록 → RUNNING 대기 → 출력 URL 반환
+    """
+    validated_input = _validate_rtsp_url(payload.rtsp_url)
+    
+    # 1. 기존 스트림 조회
+    existing_state = manager.get_stream_by_url(validated_input)
+    
+    # 2. 기존 스트림이 있으면 연결 끊기 (6번 API와 동일한 로직 사용)
+    # 기존 스트림의 output_url을 보존 (설정에 있으면 사용)
+    preserved_output_url = None
+    if existing_state:
+        existing_stream_id = existing_state.stream_id
+        logger.info(f"기존 스트림 발견: {existing_stream_id}, 연결 끊기 후 재등록", stream_id=existing_stream_id)
+        
+        # 기존 스트림의 output_url 보존 (설정에 있으면 사용)
+        preserved_output_url = existing_state.config.output_url
+        
+        # 6번 API(disconnect)와 동일한 로직 사용
+        _disconnect_stream_internal(manager, existing_stream_id)
+    
+    # 3. 새로 등록
+    new_stream_id = f"auto-{str(uuid.uuid4())[:8]}"
+    
+    # output_url 결정: 기존 스트림의 output_url이 있으면 사용, 없으면 generate_output_url 사용
+    final_output_url = preserved_output_url or StreamConfig.generate_output_url(validated_input)
+    
+    try:
+        manager.start_stream(
+            stream_id=new_stream_id,
+            rtsp_url=validated_input,
+            output_url=final_output_url,
+            wait=False
+        )
+        
+        # 4. RUNNING 대기 및 URL 획득
+        final_output_url = await _wait_for_stream_running(manager, new_stream_id)
+        
+        return StreamControlResponse(data={
+            "output_url": final_output_url
+        })
+        
+    except Exception as e:
+        # 실패 시 정리 시도
+        try:
+            manager.stop_stream(new_stream_id, force=False)
+            manager.delete_stream(new_stream_id)
+        except:
+            pass
+        raise StreamError(
+            ErrorCode.STREAM_CONNECTION_FAILED if not isinstance(e, StreamError) else e.code,
+            f"입력 URL '{payload.rtsp_url}'로 스트림을 재등록할 수 없습니다: {e}",
+            stream_id="auto",
+        ) from e
 
 
