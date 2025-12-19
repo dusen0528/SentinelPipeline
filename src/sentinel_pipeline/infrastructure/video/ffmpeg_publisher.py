@@ -117,6 +117,17 @@ class FFmpegPublisher:
         """오류 수."""
         return self._error_count
     
+    def update_resolution(self, width: int, height: int) -> None:
+        """
+        해상도를 업데이트합니다.
+        
+        주의: 프로세스가 중지된 상태에서 호출해야 다음 start() 시 적용됩니다.
+        """
+        with self._lock:
+            self._width = width
+            self._height = height
+            self._logger.info(f"퍼블리셔 해상도 업데이트: {width}x{height}")
+
     def start(self) -> bool:
         """
         FFmpeg 프로세스를 시작합니다.
@@ -229,31 +240,44 @@ class FFmpegPublisher:
             return False
         
         try:
-            # 프레임 크기 확인 및 리사이즈 (비율 유지)
-            if frame.shape[1] != self._width or frame.shape[0] != self._height:
-                import cv2
-                # 비율을 유지하면서 리사이즈 (잘림 방지)
-                h, w = frame.shape[:2]
+            import cv2
+            h, w = frame.shape[:2]
+            
+            # [수정] 고정 캔버스(Letterbox/Padding) 보호 로직
+            # 어떤 크기의 프레임이 들어와도 self._width x self._height 규격으로 강제 맞춤
+            if w != self._width or h != self._height:
+                # 1. 비율 유지하며 리사이즈 (잘림 방지)
                 scale = min(self._width / w, self._height / h)
                 new_w = int(w * scale)
                 new_h = int(h * scale)
                 
-                # 비율 유지 리사이즈
+                # 최소 1픽셀 보장
+                new_w = max(1, new_w)
+                new_h = max(1, new_h)
+                
                 resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
                 
-                # 필요시 패딩 추가 (중앙 정렬)
-                if new_w != self._width or new_h != self._height:
-                    pad_w = (self._width - new_w) // 2
-                    pad_h = (self._height - new_h) // 2
-                    frame = cv2.copyMakeBorder(
-                        resized,
-                        pad_h, self._height - new_h - pad_h,
-                        pad_w, self._width - new_w - pad_w,
-                        cv2.BORDER_CONSTANT,
-                        value=[0, 0, 0]  # 검은색 패딩
-                    )
-                else:
-                    frame = resized
+                # 2. 패딩 추가 (중앙 정렬 Letterbox)
+                pad_w = (self._width - new_w) // 2
+                pad_h = (self._height - new_h) // 2
+                
+                # 패딩 값이 음수가 되지 않도록 방어 (이미지 비율 계산 오차 등)
+                top = max(0, pad_h)
+                bottom = max(0, self._height - new_h - top)
+                left = max(0, pad_w)
+                right = max(0, self._width - new_w - left)
+                
+                frame = cv2.copyMakeBorder(
+                    resized,
+                    top, bottom,
+                    left, right,
+                    cv2.BORDER_CONSTANT,
+                    value=[0, 0, 0]  # 검은색 패딩
+                )
+                
+                # 최종 크기 보정 (패딩 계산 오차로 인한 1px 차이 방지)
+                if frame.shape[1] != self._width or frame.shape[0] != self._height:
+                    frame = cv2.resize(frame, (self._width, self._height), interpolation=cv2.INTER_NEAREST)
             
             # 큐에 프레임 추가
             try:
@@ -388,6 +412,26 @@ class FFmpegPublisher:
         self.stop()
         time.sleep(0.5)
         return self.start()
+
+    def reconfigure(self, width: int, height: int) -> bool:
+        """
+        런타임에 퍼블리셔의 해상도를 재설정합니다.
+        
+        내부적으로 FFmpeg 프로세스를 재시작하여 새 해상도를 적용합니다.
+        
+        Args:
+            width: 새로운 프레임 너비
+            height: 새로운 프레임 높이
+            
+        Returns:
+            재시작 성공 여부
+        """
+        self._logger.info(f"FFmpeg 퍼블리셔 재설정 요청: {width}x{height}")
+        with self._lock:
+            self._width = width
+            self._height = height
+        
+        return self.restart()
     
     def _build_ffmpeg_command(self) -> list[str]:
         """FFmpeg 명령 구성."""

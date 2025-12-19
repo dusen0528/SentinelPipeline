@@ -70,7 +70,7 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
         logger.error(
             "SentinelError 발생",
             code=exc.code.value,
-            message=exc.message,
+            error_msg=exc.message,
             details=exc.details,
         )
         return JSONResponse(

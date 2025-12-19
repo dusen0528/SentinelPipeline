@@ -77,6 +77,10 @@ class StreamConfig:
     output_url: str | None = None
     output_enabled: bool = True
     
+    # 목표 출력 해상도 (None이면 최초 접속 해상도 기준 downscale 적용)
+    target_width: int | None = None
+    target_height: int | None = None
+    
     def __post_init__(self) -> None:
         """유효성 검사"""
         if not self.stream_id:
@@ -109,6 +113,8 @@ class StreamConfig:
             "reconnect_max_delay": self.reconnect_max_delay,
             "output_url": self._mask_url(self.output_url) if self.output_url else None,
             "output_enabled": self.output_enabled,
+            "target_width": self.target_width,
+            "target_height": self.target_height,
         }
     
     @staticmethod
@@ -158,6 +164,8 @@ class StreamConfig:
             reconnect_max_delay=data.get("reconnect_max_delay", 8.0),
             output_url=data.get("output_url"),
             output_enabled=data.get("output_enabled", True),
+            target_width=data.get("target_width"),
+            target_height=data.get("target_height"),
         )
 
 

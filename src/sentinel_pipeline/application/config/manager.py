@@ -37,6 +37,8 @@ class GlobalConfig:
     queue_max: int = 2
     drop_strategy: str = "drop_oldest"
     inference_timeout_ms: int = 50
+    target_width: int | None = None
+    target_height: int | None = None
 
 
 @dataclass
@@ -225,6 +227,8 @@ class ConfigManager:
         downscale: float | None = None,
         queue_max: int | None = None,
         drop_strategy: str | None = None,
+        target_width: int | None = None,
+        target_height: int | None = None,
     ) -> GlobalConfig:
         """
         전역 설정을 업데이트합니다.
@@ -234,6 +238,8 @@ class ConfigManager:
             downscale: 다운스케일 비율
             queue_max: 최대 큐 크기
             drop_strategy: 드롭 전략
+            target_width: 목표 출력 너비
+            target_height: 목표 출력 높이
         
         Returns:
             업데이트된 전역 설정
@@ -255,10 +261,15 @@ class ConfigManager:
                 global_config.queue_max = queue_max
             if drop_strategy is not None:
                 global_config.drop_strategy = drop_strategy
+            if target_width is not None:
+                global_config.target_width = target_width
+            if target_height is not None:
+                global_config.target_height = target_height
             
             logger.info(
                 f"전역 설정 변경: max_fps={global_config.max_fps}, "
-                f"downscale={global_config.downscale}"
+                f"downscale={global_config.downscale}, "
+                f"target_resolution={global_config.target_width}x{global_config.target_height}"
             )
         
         # 콜백 호출 (락 밖에서)

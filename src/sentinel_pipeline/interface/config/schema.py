@@ -66,6 +66,9 @@ class StreamConfig(BaseModel):
     output_url: str | None = Field(None, description="출력 RTSP/RTMP URL")
     output_enabled: bool = Field(True, description="출력 활성화 여부")
 
+    target_width: int | None = Field(None, description="목표 출력 너비 (고정)")
+    target_height: int | None = Field(None, description="목표 출력 높이 (고정)")
+
     @field_validator("stream_id", "rtsp_url")
     @classmethod
     def not_empty(cls, value: str) -> str:
@@ -226,6 +229,9 @@ class GlobalConfig(BaseModel):
         "drop_oldest", description="프레임 드롭 전략"
     )
     inference_timeout_ms: int = Field(50, description="추론 타임아웃 (밀리초)")
+
+    target_width: int | None = Field(None, description="기본 목표 출력 너비")
+    target_height: int | None = Field(None, description="기본 목표 출력 높이")
 
     @model_validator(mode="after")
     def validate_values(self) -> "GlobalConfig":
