@@ -9,7 +9,7 @@ import time
 from urllib.parse import urlparse
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -55,6 +55,16 @@ class StreamControlResponse(BaseModel):
 
 class StreamStartRequest(BaseModel):
     rtsp_url: str = Field(..., description="RTSP URL")
+    max_fps: int | None = Field(None, description="최대 FPS")
+    downscale: float | None = Field(None, description="프레임 축소 비율")
+    output_url: str | None = Field(None, description="출력 URL (선택)")
+
+    model_config = {"extra": "forbid"}
+
+
+class StreamStartByInputRequest(BaseModel):
+    """RTSP URL로 스트림 시작 시 사용 (rtsp_url은 선택, 쿼리 파라미터 input_url 사용)"""
+    rtsp_url: str | None = Field(None, description="RTSP URL (선택, 쿼리 파라미터 input_url 사용 가능)")
     max_fps: int | None = Field(None, description="최대 FPS")
     downscale: float | None = Field(None, description="프레임 축소 비율")
     output_url: str | None = Field(None, description="출력 URL (선택)")
@@ -163,6 +173,24 @@ async def _wait_for_stream_running(manager: StreamManager, stream_id: str) -> st
         stream_id=stream_id
     )
 
+
+def _get_stream_id_by_url(manager: StreamManager, input_url: str) -> str:
+    """
+    입력 RTSP URL로 스트림을 찾아 stream_id를 반환합니다.
+    스트림이 없으면 StreamError를 발생시킵니다.
+    """
+    validated_input = _validate_rtsp_url(input_url)
+    state = manager.get_stream_by_url(validated_input)
+    
+    if not state:
+        raise StreamError(
+            ErrorCode.STREAM_NOT_FOUND,
+            f"입력 URL '{input_url}'에 해당하는 스트림을 찾을 수 없습니다.",
+            stream_id="auto"
+        )
+    
+    return state.stream_id
+
 # === 라우트 ===
 # 주의: 구체적인 경로(/by-input)를 동적 경로(/{stream_id})보다 먼저 등록해야 합니다.
 
@@ -237,6 +265,148 @@ async def get_output_url_by_input(
         ) from e
 
 
+@router.post("/by-input/start", response_model=StreamControlResponse)
+async def start_stream_by_input(
+    input_url: str = Query(..., description="입력 RTSP URL"),
+    payload: StreamStartByInputRequest | None = Body(default=None, description="스트림 설정 (선택)"),
+    manager: StreamManager = Depends(get_stream_manager),
+) -> StreamControlResponse:
+    """
+    입력 RTSP URL로 스트림을 찾아 시작합니다.
+    
+    - 기존 스트림이 있으면: 해당 스트림 시작
+    - 스트림이 없으면: 새로 생성하고 시작
+    
+    Body의 rtsp_url이 있으면 그걸 사용하고, 없으면 input_url 쿼리 파라미터를 사용합니다.
+    """
+    # RTSP URL 결정: body가 있으면 body 우선, 없으면 쿼리 파라미터 사용
+    rtsp_url = payload.rtsp_url if payload and payload.rtsp_url else input_url
+    validated_url = _validate_rtsp_url(rtsp_url)
+    
+    if payload and payload.output_url:
+        _validate_rtsp_url(payload.output_url)
+    
+    # 기존 스트림 조회
+    state = manager.get_stream_by_url(validated_url)
+    
+    if state:
+        # 기존 스트림이 있으면 해당 stream_id로 시작
+        stream_id = state.stream_id
+        
+        # 설정 업데이트가 필요한 경우 (body에 설정이 있으면)
+        if payload:
+            try:
+                final_state = manager.start_stream(
+                    stream_id=stream_id,
+                    rtsp_url=validated_url,
+                    max_fps=payload.max_fps,
+                    downscale=payload.downscale,
+                    output_url=payload.output_url,
+                    wait=True,
+                )
+                # 출력 URL을 명시적으로 반환
+                output_url = final_state.config.output_url or StreamConfig.generate_output_url(validated_url)
+                result = _state_to_dict(final_state)
+                result["output_url"] = output_url
+                return StreamControlResponse(data=result)
+            except (StreamError, ValueError) as e:
+                raise StreamError(
+                    e.code if isinstance(e, StreamError) else ErrorCode.CONFIG_INVALID,
+                    str(e),
+                    stream_id=stream_id,
+                ) from e
+        else:
+            # 설정 없이 재시작만
+            final_state = manager.restart_stream(stream_id, wait=True)
+            # 출력 URL을 명시적으로 반환
+            output_url = final_state.config.output_url or StreamConfig.generate_output_url(validated_url)
+            result = _state_to_dict(final_state)
+            result["output_url"] = output_url
+            return StreamControlResponse(data=result)
+    else:
+        # 스트림이 없으면 새로 생성
+        new_stream_id = f"auto-{str(uuid.uuid4())[:8]}"
+        
+        try:
+            final_state = manager.start_stream(
+                stream_id=new_stream_id,
+                rtsp_url=validated_url,
+                max_fps=payload.max_fps if payload else None,
+                downscale=payload.downscale if payload else None,
+                output_url=payload.output_url if payload else None,
+                wait=True,
+            )
+            # 출력 URL을 명시적으로 반환
+            output_url = final_state.config.output_url or StreamConfig.generate_output_url(validated_url)
+            result = _state_to_dict(final_state)
+            result["output_url"] = output_url
+            return StreamControlResponse(data=result)
+        except (StreamError, ValueError) as e:
+            # 실패 시 정리 시도
+            try:
+                manager.stop_stream(new_stream_id, force=False)
+                manager.delete_stream(new_stream_id)
+            except:
+                pass
+            raise StreamError(
+                e.code if isinstance(e, StreamError) else ErrorCode.CONFIG_INVALID,
+                f"입력 URL '{rtsp_url}'로 스트림을 시작할 수 없습니다: {e}",
+                stream_id="auto",
+            ) from e
+
+
+@router.post("/by-input/stop", response_model=StreamControlResponse)
+async def stop_stream_by_input(
+    input_url: str = Query(..., description="입력 RTSP URL"),
+    manager: StreamManager = Depends(get_stream_manager),
+) -> StreamControlResponse:
+    """입력 RTSP URL로 스트림을 찾아 중지합니다."""
+    stream_id = _get_stream_id_by_url(manager, input_url)
+    manager.stop_stream(stream_id)
+    state = manager.get_stream_state(stream_id)
+    data = _state_to_dict(state) if state else {"stream_id": stream_id, "status": "STOPPED"}
+    return StreamControlResponse(data=data)
+
+
+@router.post("/by-input/restart", response_model=StreamControlResponse)
+async def restart_stream_by_input(
+    input_url: str = Query(..., description="입력 RTSP URL"),
+    manager: StreamManager = Depends(get_stream_manager),
+) -> StreamControlResponse:
+    """입력 RTSP URL로 스트림을 찾아 재시작합니다."""
+    stream_id = _get_stream_id_by_url(manager, input_url)
+    state = manager.restart_stream(stream_id, wait=True)
+    return StreamControlResponse(data=_state_to_dict(state))
+
+
+@router.post("/by-input/disconnect", response_model=StreamControlResponse)
+async def disconnect_stream_by_input(
+    input_url: str = Query(..., description="입력 RTSP URL"),
+    manager: StreamManager = Depends(get_stream_manager),
+) -> StreamControlResponse:
+    """
+    입력 RTSP URL로 스트림을 찾아 중지하고 모든 리소스를 정리한 후 삭제합니다.
+    
+    동작 순서:
+    1. 입력 URL로 스트림 검색
+    2. 스트림 중지 요청 (정상 종료 시도)
+    3. 스레드 종료 대기 (최대 5초)
+    4. 리소스 정리 (디코더, 퍼블리셔 해제)
+    5. 스트림 삭제 (메모리에서 제거)
+    """
+    stream_id = _get_stream_id_by_url(manager, input_url)
+    
+    # 중지 및 삭제 (내부 헬퍼 함수 사용)
+    _disconnect_stream_internal(manager, stream_id)
+    
+    return StreamControlResponse(data={
+        "stream_id": stream_id,
+        "input_url": input_url,
+        "status": "DISCONNECTED",
+        "message": "연결이 완전히 종료되었습니다."
+    })
+
+
 @router.get("/{stream_id}", response_model=StreamDetailResponse)
 async def get_stream(
     stream_id: str,
@@ -279,7 +449,11 @@ async def start_stream(
             output_url=payload.output_url,
             wait=True,
         )
-        return StreamControlResponse(data=_state_to_dict(final_state))
+        # 출력 URL을 명시적으로 반환
+        output_url = final_state.config.output_url or StreamConfig.generate_output_url(validated_url)
+        result = _state_to_dict(final_state)
+        result["output_url"] = output_url
+        return StreamControlResponse(data=result)
     except (StreamError, ValueError) as e:
         # ValueError from StreamConfig validation
         raise StreamError(

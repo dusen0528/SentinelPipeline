@@ -63,7 +63,7 @@ class StreamConfig:
     stream_id: str
     rtsp_url: str
     enabled: bool = True
-    max_fps: int = 15
+    max_fps: int = 30
     downscale: float = 1.0
     buffer_size: int = 2
     
