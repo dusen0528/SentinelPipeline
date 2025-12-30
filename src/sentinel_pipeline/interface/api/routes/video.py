@@ -21,7 +21,7 @@ from sentinel_pipeline.interface.api.dependencies import get_stream_manager
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/streams", tags=["streams"])
+router = APIRouter(prefix="/api/video/streams", tags=["Video Streams"])
 
 WAIT_TIMEOUT_SECONDS = 10.0
 WAIT_POLL_SECONDS = 0.2

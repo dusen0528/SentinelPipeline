@@ -43,6 +43,20 @@
       }
     ],
   
+    "audio_streams": [
+      {
+        "stream_id": "audio_rtsp_01",
+        "rtsp_url": "rtsp://example.com/audio",
+        "use_microphone": false,
+        "enabled": false,
+        "sample_rate": 16000,
+        "chunk_duration": 2.0,
+        "scream_threshold": 0.8,
+        "stt_enabled": true,
+        "stt_model_size": "base"
+      }
+    ],
+  
     "global": {
       "max_fps": 30,
       "downscale": 1.0,

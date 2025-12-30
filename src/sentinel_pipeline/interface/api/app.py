@@ -24,8 +24,9 @@ from sentinel_pipeline.interface.api.routes import (
     config,
     health,
     metrics,
-    streams,
+    video,
     dashboard,
+    audio,
 )
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -49,6 +50,7 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
         loop = asyncio.get_running_loop()
         if hasattr(app.state, "app_context"):
             app.state.app_context.stream_manager.set_event_loop(loop)
+            app.state.app_context.audio_manager.set_event_loop(loop)
         else:
             logger.warning("AppContext not found in app.state")
 
@@ -102,16 +104,37 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
 
     # 라우터 등록
     app.include_router(health.router)
-    app.include_router(streams.router)
+    app.include_router(video.router)
     app.include_router(config.router)
     app.include_router(metrics.router)
     app.include_router(admin_ws.router)
     app.include_router(admin_debug.router)
     app.include_router(dashboard.router)
+    app.include_router(audio.router)
 
-    # 정적 파일 서빙 (대시보드)
-    static_dir = Path(__file__).resolve().parent / "static"
-    if static_dir.exists():
-        app.mount("/admin/static", StaticFiles(directory=static_dir), name="admin-static")
+    # 정적 파일 서빙 (Clean Architecture Frontend)
+    interface_dir = Path(__file__).resolve().parent.parent
+    static_root = interface_dir / "static"
+
+    if static_root.exists():
+        # Common (Shared Kernel)
+        common_dir = static_root / "common"
+        if common_dir.exists():
+            app.mount("/static/common", StaticFiles(directory=common_dir), name="static-common")
+
+        # Audio Module
+        audio_dir = static_root / "audio"
+        if audio_dir.exists():
+            app.mount("/static/audio", StaticFiles(directory=audio_dir), name="static-audio")
+
+        # Video Module (Main Dashboard)
+        video_dir = static_root / "video"
+        if video_dir.exists():
+            app.mount("/static/video", StaticFiles(directory=video_dir), name="static-video")
+            
+        # Root Redirect to Video Dashboard (Default)
+        @app.get("/")
+        async def root():
+            return JSONResponse(status_code=307, headers={"Location": "/static/video/index.html"}, content=None)
 
     return app

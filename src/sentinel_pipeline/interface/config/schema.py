@@ -112,6 +112,33 @@ class StreamConfig(BaseModel):
         return value
 
 
+class AudioStreamConfig(BaseModel):
+    """오디오 스트림 설정 스키마."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
+
+    stream_id: str = Field(..., description="스트림 고유 ID")
+    rtsp_url: str | None = Field(None, description="RTSP URL (마이크 미사용 시 필수)")
+    use_microphone: bool = Field(False, description="마이크 사용 여부")
+    mic_device_index: int | None = Field(None, description="마이크 디바이스 인덱스")
+    enabled: bool = Field(True, description="활성화 여부")
+    
+    # 오디오 처리 설정
+    sample_rate: int = Field(16000, description="샘플링 레이트")
+    chunk_duration: float = Field(2.0, description="청크 길이 (초)")
+    
+    # 분석 설정
+    scream_threshold: float = Field(0.8, description="비명 감지 임계값")
+    stt_enabled: bool = Field(True, description="STT 활성화 여부")
+    stt_model_size: str = Field("base", description="Whisper 모델 크기")
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "AudioStreamConfig":
+        if not self.use_microphone and not self.rtsp_url:
+            raise ValueError("마이크를 사용하지 않을 경우 rtsp_url은 필수입니다")
+        return self
+
+
 class PipelineConfig(BaseModel):
     """파이프라인 설정 스키마."""
 
@@ -256,7 +283,8 @@ class AppConfig(BaseModel):
     )
 
     modules: list[ModuleConfig] = Field(default_factory=list, description="모듈 설정 목록")
-    streams: list[StreamConfig] = Field(default_factory=list, description="스트림 설정 목록")
+    streams: list[StreamConfig] = Field(default_factory=list, description="비디오 스트림 설정 목록")
+    audio_streams: list[AudioStreamConfig] = Field(default_factory=list, description="오디오 스트림 설정 목록")
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig, description="파이프라인 설정")
     event: EventConfig = Field(default_factory=EventConfig, description="이벤트 설정")
     observability: ObservabilityConfig = Field(
@@ -277,7 +305,12 @@ class AppConfig(BaseModel):
 
         stream_ids = [s.stream_id for s in self.streams]
         if len(stream_ids) != len(set(stream_ids)):
-            raise ValueError("스트림 ID가 중복됩니다")
+            raise ValueError("비디오 스트림 ID가 중복됩니다")
+            
+        audio_stream_ids = [s.stream_id for s in self.audio_streams]
+        if len(audio_stream_ids) != len(set(audio_stream_ids)):
+            raise ValueError("오디오 스트림 ID가 중복됩니다")
+            
         return self
 
 

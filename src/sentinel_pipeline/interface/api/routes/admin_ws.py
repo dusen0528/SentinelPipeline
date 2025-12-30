@@ -57,7 +57,7 @@ async def _auth_ws(ws: WebSocket) -> bool:
     return True
 
 
-@router.websocket("/ws/admin")
+@router.websocket("/api/ws/admin")
 async def admin_ws(ws: WebSocket) -> None:
     if not await _auth_ws(ws):
         return

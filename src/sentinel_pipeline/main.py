@@ -16,6 +16,7 @@ from sentinel_pipeline.application.config.manager import ConfigManager
 from sentinel_pipeline.application.event.emitter import EventEmitter
 from sentinel_pipeline.application.pipeline.pipeline import PipelineEngine
 from sentinel_pipeline.application.stream.manager import StreamManager
+from sentinel_pipeline.application.stream.audio_manager import AudioManager
 from sentinel_pipeline.common.logging import get_logger
 from sentinel_pipeline.domain.models.event import Event
 from sentinel_pipeline.infrastructure.transport.http_client import create_http_transport
@@ -31,6 +32,7 @@ logger = get_logger(__name__)
 
 # 전역 컴포넌트 (종료 시 정리용)
 _stream_manager: StreamManager | None = None
+_audio_manager: AudioManager | None = None
 _pipeline_engine: PipelineEngine | None = None
 _event_emitter: EventEmitter | None = None
 _transport_close_funcs: list[Callable[[], None]] = []
@@ -255,7 +257,11 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
     stats_interval = float(os.getenv("MODULE_STATS_INTERVAL", "5.0"))
     pipeline_engine.start_stats_publisher(interval_sec=stats_interval)
     
-    # 7. 초기 스트림 시작 (enabled=True인 것만)
+    # 7. Audio Manager 초기화
+    audio_manager = AudioManager()
+    audio_manager.set_dependencies(event_emitter=event_emitter)
+    
+    # 8. 초기 스트림 시작 (enabled=True인 것만)
     for stream_config in streams_cfg:
         if stream_config.enabled:
             try:
@@ -268,17 +274,27 @@ def initialize_components(config_path: str | Path | None = None) -> tuple:
                     target_width=stream_config.target_width,
                     target_height=stream_config.target_height,
                 )
-                logger.info(f"초기 스트림 시작: {stream_config.stream_id}")
+                logger.info(f"초기 비디오 스트림 시작: {stream_config.stream_id}")
             except Exception as e:
                 logger.error(
-                    f"스트림 시작 실패: {stream_config.stream_id} - {e}",
+                    f"비디오 스트림 시작 실패: {stream_config.stream_id} - {e}",
                     stream_id=stream_config.stream_id,
                     error=str(e),
                 )
     
+    # 오디오 스트림 시작
+    audio_streams_cfg = bundle.get("audio_streams", [])
+    for audio_cfg in audio_streams_cfg:
+        if audio_cfg.enabled:
+            try:
+                audio_manager.start_stream(audio_cfg)
+                logger.info(f"초기 오디오 스트림 시작: {audio_cfg.stream_id}")
+            except Exception as e:
+                logger.error(f"오디오 스트림 시작 실패: {audio_cfg.stream_id} - {e}")
+    
     logger.info("컴포넌트 초기화 완료")
     
-    return stream_manager, pipeline_engine, config_manager, loader, event_emitter
+    return stream_manager, audio_manager, pipeline_engine, config_manager, loader, event_emitter
 
 
 def apply_bundle_to_components(
@@ -417,7 +433,7 @@ def apply_bundle_to_components(
 
 def shutdown_components() -> None:
     """모든 컴포넌트를 종료합니다."""
-    global _stream_manager, _pipeline_engine, _event_emitter, _transport_close_funcs
+    global _stream_manager, _audio_manager, _pipeline_engine, _event_emitter, _transport_close_funcs
     
     logger.info("컴포넌트 종료 시작")
     
@@ -426,6 +442,12 @@ def shutdown_components() -> None:
             _stream_manager.stop_all_streams()
         except Exception as e:
             logger.error(f"스트림 종료 오류: {e}", error=str(e))
+            
+    if _audio_manager:
+        try:
+            _audio_manager.stop_all()
+        except Exception as e:
+            logger.error(f"오디오 매니저 종료 오류: {e}", error=str(e))
     
     if _pipeline_engine:
         try:
@@ -474,9 +496,10 @@ def main() -> None:
     
     try:
         # 컴포넌트 초기화
-        global _stream_manager, _pipeline_engine, _event_emitter
+        global _stream_manager, _audio_manager, _pipeline_engine, _event_emitter
         (
             _stream_manager,
+            _audio_manager,
             _pipeline_engine,
             config_manager,
             config_loader,
@@ -492,6 +515,7 @@ def main() -> None:
         
         app_context = AppContext(
             stream_manager=_stream_manager,
+            audio_manager=_audio_manager,
             pipeline_engine=_pipeline_engine,
             config_manager=config_manager,
             config_loader=config_loader,

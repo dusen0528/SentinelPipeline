@@ -189,6 +189,7 @@ class ConfigLoader:
             "event": config.event.model_dump(),
             "observability": config.observability.model_dump(),
             "streams": self.to_domain_streams(config),
+            "audio_streams": config.audio_streams, # 리스트 그대로 전달
         }
 
     def to_domain_streams(self, config: AppConfig) -> list[DomainStreamConfig]:
