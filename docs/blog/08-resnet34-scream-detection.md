@@ -32,31 +32,27 @@
 
 ## 오디오를 이미지로 변환: 멜 스펙트로그램
 
-### 1. 멜 스펙트로그램 (Mel Spectrogram)
-
-**멜 스펙트로그램이란?**
-
-- 오디오 신호를 **시간-주파수 도메인**으로 변환한 2D 이미지
-- 인간의 청각 시스템(Mel Scale)을 모방한 주파수 스케일 사용
-- 비명의 고주파 패턴을 시각적으로 표현
-
-**왜 멜 스펙트로그램인가?**
-
-- **CNN의 강점 활용**: 이미지 분류에 특화된 ResNet34 모델 사용 가능
-- **시각적 패턴 학습**: 비명의 고주파 패턴을 이미지로 직접 인식
-- **자동 특징 추출**: 모델이 스스로 중요한 패턴을 학습
+**주의: 샘플링 레이트 설정**
+- 본 문서의 데이터셋 분석은 **22,050 Hz**를 기준으로 설명되었으나,
+- 실제 프로덕션 파이프라인(`ScreamDetector`)은 **16,000 Hz**로 다운샘플링하여 추론합니다.
+- 이는 STT 모델(Whisper)과의 호환성 및 처리 속도 최적화를 위함입니다.
 
 ```python
-# 멜 스펙트로그램 생성
+# 실제 코드 (infrastructure/audio/processors/scream_detector.py)
+self.sample_rate = 16000 
+```
+
+### 1. 멜 스펙트로그램 변환
+
+```python
+# 멜 스펙트로그램 변환 (문서 예시용 코드)
 mel_transform = torchaudio.transforms.MelSpectrogram(
-    sample_rate=22050,  # 샘플링 레이트
-    n_mels=64,          # 멜 빈 개수 (세로축 해상도)
+    sample_rate=22050,  # 실제 코드에서는 16000 사용
+    n_mels=64,          # 멜 필터 뱅크 개수 (Y축 높이)
     n_fft=1024,         # FFT 윈도우 크기
-    hop_length=512      # 프레임 간격
+    hop_length=512      # 윈도우 이동 간격
 )
 
-spectrogram = mel_transform(audio_tensor)
-```
 
 **멜 스펙트로그램 파라미터 설명**
 

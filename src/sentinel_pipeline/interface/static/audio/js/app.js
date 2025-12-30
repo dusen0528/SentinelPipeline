@@ -68,6 +68,9 @@ class App {
                 this.updateActiveCount();
             }
         );
+        
+        // 웨이브폼 상태 복귀 타이머
+        this.waveformTimer = null;
 
         // Setup handlers
         this.streamHandler.setupForm('stream-form');
@@ -76,9 +79,27 @@ class App {
         // Load initial data
         await this.loadStreams();
         this.updateActiveCount();
+        
+        // 초기 RAW SIGNAL 상태 설정
+        this.updateSignalStatus('idle');
 
         // Setup WebSocket
         this.setupWebSocket();
+    }
+
+    triggerWaveform(mode, duration = 1000) {
+        if (!this.waveformViewer) return;
+        
+        this.waveformViewer.setMode(mode);
+        
+        if (this.waveformTimer) {
+            clearTimeout(this.waveformTimer);
+        }
+        
+        this.waveformTimer = setTimeout(() => {
+            this.waveformViewer.setMode('idle');
+            this.waveformTimer = null;
+        }, duration);
     }
 
     setupNodeClickHandlers() {
@@ -128,6 +149,9 @@ class App {
             const node = document.getElementById(nodeId);
             if (node) node.classList.remove('ring-2', 'ring-brand', 'ring-offset-2');
         });
+        
+        // RAW SIGNAL 상태 업데이트
+        this.updateSignalStatus(stream.status);
     }
 
     showPipelineView(stream) {
@@ -145,6 +169,32 @@ class App {
             'inactive': 'px-3 py-1 text-xs font-bold rounded-full bg-gray-50 text-gray-600 border border-gray-200'
         };
         statusElement.className = statusClassMap[stream.status] || statusClassMap.inactive;
+        
+        // RAW SIGNAL 상태 업데이트
+        this.updateSignalStatus(stream.status);
+    }
+    
+    updateSignalStatus(status) {
+        const signalStatusEl = document.getElementById('signal-status');
+        if (!signalStatusEl) return;
+        
+        const statusMap = {
+            'running': { label: 'LIVE', color: 'text-brand-light', dotColor: 'bg-brand-light', animate: true },
+            'active': { label: 'LIVE', color: 'text-brand-light', dotColor: 'bg-brand-light', animate: true },
+            'starting': { label: 'STARTING', color: 'text-yellow-500', dotColor: 'bg-yellow-500', animate: true },
+            'stopping': { label: 'STOPPING', color: 'text-orange-500', dotColor: 'bg-orange-500', animate: false },
+            'stopped': { label: 'STOPPED', color: 'text-gray-400', dotColor: 'bg-gray-400', animate: false },
+            'error': { label: 'ERROR', color: 'text-red-500', dotColor: 'bg-red-500', animate: false },
+            'idle': { label: 'IDLE', color: 'text-gray-400', dotColor: 'bg-gray-400', animate: false }
+        };
+        
+        const statusInfo = statusMap[status?.toLowerCase()] || statusMap.idle;
+        const animateClass = statusInfo.animate ? 'animate-pulse' : '';
+        
+        signalStatusEl.className = `text-[10px] ${statusInfo.color} font-bold flex items-center gap-1`;
+        signalStatusEl.innerHTML = `
+            <span class="w-1.5 h-1.5 rounded-full ${statusInfo.dotColor} ${animateClass}"></span> ${statusInfo.label}
+        `;
     }
 
     async deleteStream() {
@@ -207,6 +257,13 @@ class App {
                 this.pipelineStatus = null;
                 document.getElementById('empty-state').classList.remove('hidden');
                 document.getElementById('pipeline-view').classList.add('hidden');
+                this.updateSignalStatus('idle');
+            } else if (data.stream_id === this.selectedStreamId) {
+                // 현재 선택된 스트림의 상태가 변경된 경우
+                const stream = this.streamService.getStream(data.stream_id);
+                if (stream) {
+                    this.updateSignalStatus(stream.status);
+                }
             }
             return;
         }
@@ -251,6 +308,8 @@ class App {
         if (data.type === 'scream_detected') {
             if (!this.selectedStreamId || data.stream_id !== this.selectedStreamId) return;
 
+            this.triggerWaveform('scream', 2000); // 2초간 비명 파형 표시
+
             this.pipelineVisualizer.setNodeStatus(2, 'alert');
             const event = new Event('SCREAM_DETECTED', data.stream_id, {
                 confidence: data.confidence
@@ -278,6 +337,7 @@ class App {
             this.pipelineVisualizer.setNodeStatus(5, riskResult.is_dangerous ? 'alert' : 'processing');
 
             if (sttResult.text) {
+                this.triggerWaveform('speech', 1500); // 1.5초간 말소리 파형 표시
                 this.pipelineVisualizer.showSTTOutput(sttResult.text, riskResult.is_dangerous);
                 this.logViewer.addLog(
                     'STT',
@@ -299,7 +359,7 @@ class App {
                     this.eventService.sendEvent(event);
                     this.logViewer.addLog(
                         'Risk Analysis',
-                        `🚨 Dangerous keyword detected: ${riskResult.keyword}`,
+                        `🚨 Dangerous keyword detected: ${riskResult.keyword} [${riskResult.path || 'unknown'}]`,
                         'alert',
                         '5' // node-5
                     );
@@ -330,6 +390,7 @@ class App {
                 data.data.text
             );
             if (event) {
+                this.triggerWaveform('scream', 2000); // 위험 키워드는 비명과 동일하게 강한 파형
                 this.eventHistory.addEvent(event);
                 this.eventChart.addEvent(event, 'node-5');
                 this.eventService.sendEvent(event);
@@ -337,7 +398,7 @@ class App {
                 this.pipelineVisualizer.showSTTOutput(data.data.text, true);
                 this.logViewer.addLog(
                     'Risk Analysis',
-                    `Dangerous keyword detected: ${data.data.keyword}`,
+                    `Dangerous keyword detected: ${data.data.keyword} [${data.data.path || 'unknown'}]`,
                     'alert',
                     '5' // node-5
                 );
