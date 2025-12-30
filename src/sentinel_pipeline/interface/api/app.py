@@ -131,6 +131,13 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
         video_dir = static_root / "video"
         if video_dir.exists():
             app.mount("/static/video", StaticFiles(directory=video_dir), name="static-video")
+        
+        # Admin Dashboard Static Files
+        # dashboard.py에서 사용하는 정적 파일 경로
+        api_static_dir = Path(__file__).resolve().parent / "static"
+        dashboard_dir = api_static_dir / "dashboard"
+        if dashboard_dir.exists():
+            app.mount("/admin/static/dashboard", StaticFiles(directory=dashboard_dir), name="static-dashboard")
             
         # Root Redirect to Video Dashboard (Default)
         @app.get("/")
