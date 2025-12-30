@@ -34,7 +34,7 @@ async def unregister(ws: WebSocket) -> None:
     logger.info("WS 연결 해제", connections=len(_connections))
 
 
-async def _broadcast(message: Dict[str, Any]) -> None:
+async def broadcast(message: Dict[str, Any]) -> None:
     async with _lock:
         conns = list(_connections)
     to_remove: list[WebSocket] = []
@@ -51,13 +51,13 @@ async def _broadcast(message: Dict[str, Any]) -> None:
 
 
 async def publish_stream_update(payload: Dict[str, Any]) -> None:
-    await _broadcast({"type": "stream_update", **payload})
+    await broadcast({"type": "stream_update", **payload})
 
 
 async def publish_module_stats(payload: Dict[str, Any]) -> None:
-    await _broadcast({"type": "module_stats", **payload})
+    await broadcast({"type": "module_stats", **payload})
 
 
 async def publish_event(payload: Dict[str, Any]) -> None:
-    await _broadcast({"type": "event", **payload})
+    await broadcast({"type": "event", **payload})
 

@@ -1,219 +1,258 @@
 {
-	"info": {
-		"_postman_id": "sentinel-pipeline-streams-api",
-		"name": "SentinelPipeline - Streams API",
-		"description": "스트림 제어 API 컬렉션\nBase URL: http://13.209.141.252:8000/api/streams\n\n## 시나리오별 API 선택 가이드\n\n| **상황** | **권장 API** | **이유** |\n| --- | --- | --- |\n| 출력 URL만 필요 | GET /by-input | 기존 유지, 빠른 응답 |\n| 스트림 완전 종료 | POST /{stream_id}/disconnect | 리소스 정리 |\n| 커스텀 설정으로 시작 | POST /{stream_id}/start | 상세 설정 가능 |\n| 스트림 재시작 | POST /{stream_id}/restart | 편의성 |\n| 일시 중지 | POST /{stream_id}/stop | 나중에 재시작 가능 |\n\n---\n\n## 중요 사항\n\n### ✅ 모든 새로 생성하는 API는 RUNNING 상태 확인 후 반환\n\n- `GET /by-input` (스트림 없을 때)\n- `POST /{stream_id}/start`\n- `POST /{stream_id}/restart`\n\n**동작**: 최대 10초 동안 RUNNING 상태가 될 때까지 대기 후 응답\n\n### ✅ 기존 스트림 유지 정책\n\n- `GET /by-input`: 기존 스트림이 있으면 **삭제/재시작 없이** URL만 반환\n- 불필요한 재시작 방지로 안정성 향상\n\n### ✅ 출력 URL 생성 규칙\n\n- 입력 URL의 마지막 경로에 `-blur` 추가\n- 예: `rtsp://.../01057432025-01057432025` → `rtsp://.../01057432025-blur`",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-	},
-	"item": [
-		{
-			"name": "1. 스트림 목록 조회",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams"
-					]
-				},
-				"description": "모든 스트림의 상태 목록을 조회합니다."
-			}
-		},
-		{
-			"name": "2. 스트림 상세 조회",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/{{stream_id}}",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"{{stream_id}}"
-					]
-				},
-				"description": "특정 스트림의 상세 정보를 조회합니다."
-			}
-		},
-		{
-			"name": "3. 스트림 시작",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"rtsp_url\": \"rtsp://15.165.156.169:5554/01057432025-01057432025\",\n  \"max_fps\": 15,\n  \"downscale\": 1.0,\n  \"output_url\": \"rtsp://15.165.156.169:5554/01057432025-blur\"\n}"
-				},
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/{{stream_id}}/start",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"{{stream_id}}",
-						"start"
-					]
-				},
-				"description": "스트림을 시작합니다. RUNNING 상태가 될 때까지 대기합니다."
-			}
-		},
-		{
-			"name": "4. 스트림 중지",
-			"request": {
-				"method": "POST",
-				"header": [],
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/{{stream_id}}/stop",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"{{stream_id}}",
-						"stop"
-					]
-				},
-				"description": "스트림을 중지합니다."
-			}
-		},
-		{
-			"name": "5. 스트림 재시작",
-			"request": {
-				"method": "POST",
-				"header": [],
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/{{stream_id}}/restart",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"{{stream_id}}",
-						"restart"
-					]
-				},
-				"description": "스트림을 재시작합니다. RUNNING 상태가 될 때까지 대기합니다."
-			}
-		},
-		{
-			"name": "6. 스트림 연결 끊기 (완전 정리)",
-			"request": {
-				"method": "POST",
-				"header": [],
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/{{stream_id}}/disconnect",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"{{stream_id}}",
-						"disconnect"
-					]
-				},
-				"description": "스트림을 중지하고 모든 리소스(FFmpeg, 디코더 등)를 정리한 후 삭제합니다.\n\n동작 순서:\n1. 스트림 중지 요청 (정상 종료 시도)\n2. 스레드 종료 대기 (최대 5초)\n3. 리소스 정리 (디코더, 퍼블리셔 해제)\n4. 스트림 삭제 (메모리에서 제거)\n\n주의: 네트워크 I/O 블로킹 중이면 5초 이상 걸릴 수 있습니다."
-			}
-		},
-		{
-			"name": "7. 입력 URL로 출력 URL 조회 ",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/by-input?input_url=rtsp://15.165.156.169:5554/01057432025-01057432025",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"by-input"
-					],
-					"query": [
-						{
-							"key": "input_url",
-							"value": "rtsp://15.165.156.169:5554/01057432025-01057432025",
-							"description": "입력 RTSP URL"
-						}
-					]
-				},
-				"description": "입력 RTSP URL로 스트림을 찾거나 생성하고, 출력 URL을 반환합니다.\n\n동작:\n- 기존 스트림이 있으면: 출력 URL만 즉시 반환 (상태와 무관, 삭제/재시작 안 함)\n- 스트림이 없으면: 새로 생성 → RUNNING 상태 대기 (최대 10초) → 출력 URL 반환\n\n특징:\n✅ Idempotent (여러 번 호출해도 안전)\n✅ 기존 스트림 보존 (불필요한 재시작 방지)\n✅ 빠른 응답 (기존 스트림이 있으면 즉시 반환)"
-			}
-		},
-		{
-			"name": "8. 스트림 재등록 (강제 재시작)",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"rtsp_url\": \"rtsp://15.165.156.169:5554/01057432025-01057432025\"\n}"
-				},
-				"url": {
-					"raw": "http://13.209.141.252:8000/api/streams/register",
-					"protocol": "http",
-					"host": [
-						"13.209.141.252"
-					],
-					"port": "8000",
-					"path": [
-						"api",
-						"streams",
-						"register"
-					]
-				},
-				"description": "입력 RTSP URL로 스트림을 강제로 재등록합니다.\n\n동작:\n1. 입력 RTSP URL로 기존 스트림 검색\n2. 기존 스트림이 있으면: 연결 끊기 → 새로 등록 → RUNNING 대기 → 출력 URL 반환\n3. 스트림이 없으면: 새로 등록 → RUNNING 대기 → 출력 URL 반환\n\n응답:\n- output_url만 반환\n\n주의사항:\n- 기존 스트림 강제 종료: 기존 스트림이 있으면 무조건 연결을 끊고 새로 시작\n- RUNNING 상태 확인: 최대 10초 동안 RUNNING 상태가 될 때까지 대기\n- 타임아웃: 10초 내에 RUNNING 상태가 되지 않으면 503 에러 반환\n\n특징:\n✅ 강제 재시작 (기존 스트림 무조건 끊기)\n✅ RUNNING 상태 확인 후 반환\n✅ 항상 새로운 스트림 인스턴스 생성"
-			}
-		}
-	],
-	"variable": [
-		{
-			"key": "stream_id",
-			"value": "test1",
-			"type": "string"
-		},
-		{
-			"key": "base_url",
-			"value": "http://13.209.141.252:8000",
-			"type": "string"
-		}
-	]
+    "info": {
+        "_postman_id": "sentinel-pipeline-api",
+        "name": "SentinelPipeline API",
+        "description": "SentinelPipeline 종합 API 컬렉션.\n\n'base_url' 변수를 설정하여 환경을 전환하세요 (예: http://localhost:8000)",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "1. 비디오 스트림 제어",
+            "item": [
+                {
+                    "name": "1.1 스트림 목록 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/video/streams"
+                    }
+                },
+                {
+                    "name": "1.2 특정 스트림 상세 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/video/streams/{{stream_id}}"
+                    }
+                },
+                {
+                    "name": "1.3 스트림 시작",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"rtsp_url\": \"{{rtsp_url}}\",\n  \"max_fps\": 30,\n  \"downscale\": 1.0\n}"
+                        },
+                        "url": "{{base_url}}/api/video/streams/{{stream_id}}/start"
+                    }
+                },
+                {
+                    "name": "1.4 스트림 중지",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/{{stream_id}}/stop"
+                    }
+                },
+                {
+                    "name": "1.5 스트림 재시작",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/{{stream_id}}/restart"
+                    }
+                },
+                {
+                    "name": "1.6 스트림 연결 끊기 (완전 정리)",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/{{stream_id}}/disconnect"
+                    }
+                },
+                {
+                    "name": "1.7 입력 URL로 출력 URL 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/video/streams/by-input?input_url={{rtsp_url}}"
+                    }
+                },
+                {
+                    "name": "1.8 입력 URL로 스트림 시작",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/by-input/start?input_url={{rtsp_url}}"
+                    }
+                },
+                {
+                    "name": "1.9 입력 URL로 스트림 중지",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/by-input/stop?input_url={{rtsp_url}}"
+                    }
+                },
+                {
+                    "name": "1.10 입력 URL로 스트림 재시작",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/by-input/restart?input_url={{rtsp_url}}"
+                    }
+                },
+                {
+                    "name": "1.11 입력 URL로 스트림 연결 끊기",
+                    "request": {
+                        "method": "POST",
+                        "url": "{{base_url}}/api/video/streams/by-input/disconnect?input_url={{rtsp_url}}"
+                    }
+                },
+                {
+                    "name": "1.12 스트림 재등록 (강제 재시작)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"rtsp_url\": \"{{rtsp_url}}\"\n}"
+                        },
+                        "url": "{{base_url}}/api/video/streams/register"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "2. 오디오 스트림 제어",
+            "item": [
+                {
+                    "name": "2.1 오디오 스트림 목록 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/audio/streams"
+                    }
+                },
+                {
+                    "name": "2.2 오디오 스트림 등록/시작",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"stream_id\": \"{{audio_stream_id}}\",\n  \"rtsp_url\": \"{{rtsp_url}}\",\n  \"use_microphone\": false\n}"
+                        },
+                        "url": "{{base_url}}/api/audio/streams"
+                    }
+                },
+                {
+                    "name": "2.3 오디오 스트림 삭제",
+                    "request": {
+                        "method": "DELETE",
+                        "url": "{{base_url}}/api/audio/streams/{{audio_stream_id}}"
+                    }
+                },
+                {
+                    "name": "2.4 오디오 스트림 상태 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/audio/streams/{{audio_stream_id}}/status"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "3. 설정 관리",
+            "item": [
+                {
+                    "name": "3.1 전체 설정 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/config"
+                    }
+                },
+                {
+                    "name": "3.2 모듈별 설정 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/config/modules/{{module_name}}"
+                    }
+                },
+                {
+                    "name": "3.3 모듈 설정 부분 업데이트",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"enabled\": true,\n  \"options\": {}\n}"
+                        },
+                        "url": "{{base_url}}/api/config/modules/{{module_name}}"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "4. 시스템 및 모니터링",
+            "item": [
+                {
+                    "name": "4.1 통합 헬스 체크",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/health"
+                    }
+                },
+                {
+                    "name": "4.2 시스템 리소스 통계",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/stats/system"
+                    }
+                },
+                {
+                    "name": "4.3 모듈별 실행 통계",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/stats/modules"
+                    }
+                },
+                {
+                    "name": "4.4 대시보드 종합 데이터 조회",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{base_url}}/api/dashboard/stats"
+                    }
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000",
+            "type": "string"
+        },
+        {
+            "key": "stream_id",
+            "value": "cam_01",
+            "type": "string"
+        },
+        {
+            "key": "audio_stream_id",
+            "value": "audio_01",
+            "type": "string"
+        },
+        {
+            "key": "module_name",
+            "value": "FaceBlurModule",
+            "type": "string"
+        },
+        {
+            "key": "rtsp_url",
+            "value": "rtsp://127.0.0.1:8554/test",
+            "type": "string"
+        }
+    ]
 }
-

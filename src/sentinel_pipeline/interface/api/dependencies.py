@@ -19,12 +19,14 @@ from sentinel_pipeline.application.config.manager import ConfigManager
 from sentinel_pipeline.application.event.emitter import EventEmitter
 from sentinel_pipeline.application.pipeline.pipeline import PipelineEngine
 from sentinel_pipeline.application.stream.manager import StreamManager
+from sentinel_pipeline.application.stream.audio_manager import AudioManager
 from sentinel_pipeline.interface.config.loader import ConfigLoader
 
 
 @dataclass
 class AppContext:
     stream_manager: StreamManager
+    audio_manager: AudioManager
     pipeline_engine: PipelineEngine
     config_manager: ConfigManager
     config_loader: ConfigLoader
@@ -49,6 +51,10 @@ def get_app_context(request: Request) -> AppContext:
 
 def get_stream_manager(context: AppContext = Depends(get_app_context)) -> StreamManager:
     return context.stream_manager
+
+
+def get_audio_manager(context: AppContext = Depends(get_app_context)) -> AudioManager:
+    return context.audio_manager
 
 
 def get_pipeline_engine(context: AppContext = Depends(get_app_context)) -> PipelineEngine:

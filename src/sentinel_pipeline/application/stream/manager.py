@@ -144,6 +144,10 @@ class StreamManager:
                         stream_id=stream_id,
                     )
             
+            max_fps = kwargs.get("max_fps", self._global_max_fps)
+            if max_fps is None:
+                max_fps = self._global_max_fps
+            
             downscale = kwargs.get("downscale", self._global_downscale)
             if downscale is None:
                 downscale = self._global_downscale
@@ -151,12 +155,17 @@ class StreamManager:
             target_width = kwargs.get("target_width") or self._global_target_width
             target_height = kwargs.get("target_height") or self._global_target_height
 
+            # output_url이 없으면 자동 생성
+            output_url = kwargs.get("output_url")
+            if output_url is None:
+                output_url = StreamConfig.generate_output_url(rtsp_url)
+
             config = StreamConfig(
                 stream_id=stream_id,
                 rtsp_url=rtsp_url,
-                max_fps=kwargs.get("max_fps", self._global_max_fps),
+                max_fps=max_fps,
                 downscale=downscale,
-                output_url=kwargs.get("output_url"),
+                output_url=output_url,
                 target_width=target_width,
                 target_height=target_height,
             )

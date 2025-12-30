@@ -1,0 +1,113 @@
+/* Custom Styles */
+body {
+    background-color: #f9fafb;
+    color: #374151;
+}
+
+/* Pipeline Node Cards */
+.node-card {
+    background: white;
+    border: 1px solid #f3f4f6;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+}
+
+.node-card.active {
+    border-color: #0f766e;
+    box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+    background-color: #f0fdfa;
+}
+
+.node-card.alert {
+    border-color: #ef4444;
+    background-color: #fef2f2;
+    animation: pulse-border 2s infinite;
+}
+
+/* Connector Lines */
+.connector-line {
+    width: 2px;
+    background-color: #e5e7eb;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 0;
+}
+
+/* Data Particle Animation */
+.data-particle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: #0f766e;
+    border-radius: 50%;
+    z-index: 20;
+    box-shadow: 0 0 8px rgba(20, 184, 166, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: top 0.5s linear, left 0.3s ease;
+}
+
+/* Thread Region Styling */
+.thread-region {
+    border: 1px dashed #e5e7eb;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 24px;
+    position: relative;
+}
+
+.thread-label {
+    position: absolute;
+    top: -10px;
+    left: 20px;
+    background: #f9fafb;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #9ca3af;
+    text-transform: uppercase;
+}
+
+/* Stream List Items */
+.stream-item {
+    transition: all 0.2s;
+}
+
+.stream-item:hover {
+    background-color: #f3f4f6;
+}
+
+.stream-item.active {
+    background-color: #f0fdfa;
+    border-left: 4px solid #0f766e;
+}
+
+/* Animations */
+@keyframes pulse-border {
+    0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+
