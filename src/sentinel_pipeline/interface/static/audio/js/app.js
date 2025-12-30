@@ -94,6 +94,10 @@ class App {
                     
                     node.classList.add('ring-2', 'ring-brand', 'ring-offset-2');
                     this.eventChart.selectNode(nodeId);
+                    
+                    // 로그 필터링: 노드 ID에서 숫자만 추출 (node-2 -> 2)
+                    const nodeNumber = nodeId.replace('node-', '');
+                    this.logViewer.filterByNode(nodeNumber);
                 });
             }
         });
@@ -226,7 +230,8 @@ class App {
                     this.logViewer.addLog(
                         'Scream Detection',
                         `Confidence: ${(data.confidence * 100).toFixed(1)}%`,
-                        data.scream_detected ? 'alert' : 'info'
+                        data.scream_detected ? 'alert' : 'info',
+                        '2' // node-2
                     );
                 }
             }
@@ -256,7 +261,8 @@ class App {
             this.logViewer.addLog(
                 'Scream Detection',
                 `Scream detected! Confidence: ${(data.confidence * 100).toFixed(1)}%`,
-                'alert'
+                'alert',
+                '2' // node-2
             );
             return;
         }
@@ -276,7 +282,8 @@ class App {
                 this.logViewer.addLog(
                     'STT',
                     `Transcription: ${sttResult.text}`,
-                    riskResult.is_dangerous ? 'alert' : 'success'
+                    riskResult.is_dangerous ? 'alert' : 'success',
+                    '5' // node-5
                 );
             }
 
@@ -293,7 +300,8 @@ class App {
                     this.logViewer.addLog(
                         'Risk Analysis',
                         `🚨 Dangerous keyword detected: ${riskResult.keyword}`,
-                        'alert'
+                        'alert',
+                        '5' // node-5
                     );
                 }
             } else {
@@ -330,7 +338,8 @@ class App {
                 this.logViewer.addLog(
                     'Risk Analysis',
                     `Dangerous keyword detected: ${data.data.keyword}`,
-                    'alert'
+                    'alert',
+                    '5' // node-5
                 );
             }
             return;

@@ -31,10 +31,10 @@ Clean Architecture는 Robert C. Martin(Uncle Bob)이 제안한 소프트웨어 �
 │   (설정 로더, 메트릭, Health 엔드포인트, 실행 진입점)          │
 ├─────────────────────────────────────────────────────────────┤
 │                   Infrastructure Layer                       │
-│   (RTSP 디코더, FFmpeg, ONNX/PyTorch, HTTP/WS 클라이언트)    │
+│   (RTSP 디코더, FFmpeg, 오디오 리더/프로세서, ONNX/PyTorch, HTTP/WS 클라이언트)    │
 ├─────────────────────────────────────────────────────────────┤
 │                    Application Layer                         │
-│   (파이프라인 엔진, 스케줄러, 스트림 관리자, 이벤트 발행자)     │
+│   (파이프라인 엔진, 스케줄러, 비디오/오디오 스트림 관리자, 이벤트 발행자)     │
 ├─────────────────────────────────────────────────────────────┤
 │                      Domain Layer                            │
 │   (모듈 인터페이스, Event 모델, Stream 모델)                  │
@@ -61,7 +61,8 @@ Clean Architecture는 Robert C. Martin(Uncle Bob)이 제안한 소프트웨어 �
 |------|------|
 | `interfaces/module.py` | 모든 처리 모듈이 구현해야 하는 인터페이스 |
 | `models/event.py` | 감지 이벤트 데이터 구조 |
-| `models/stream.py` | 스트림 상태 및 설정 모델 |
+| `models/stream.py` | 비디오 스트림 상태 및 설정 모델 |
+| `models/audio_stream.py` | 오디오 스트림 상태 및 설정 모델 |
 
 **ModuleBase 인터페이스**:
 
@@ -115,7 +116,8 @@ class Event:
 |----------|------|------|
 | `pipeline/` | `pipeline.py` | 파이프라인 엔진 - 모듈 순차 실행 |
 | `pipeline/` | `scheduler.py` | 모듈 스케줄러 - priority 정렬, timeout 관리 |
-| `stream/` | `manager.py` | 스트림 관리자 - 생명주기 관리 |
+| `stream/` | `manager.py` | 비디오 스트림 관리자 - 생명주기 관리 |
+| `stream/` | `audio_manager.py` | 오디오 스트림 관리자 - 생명주기 및 분석 파이프라인 관리 |
 | `stream/` | `health.py` | 헬스 워처 - FPS 모니터링, 재연결 정책 |
 | `event/` | `emitter.py` | 이벤트 발행자 - 큐 관리, 드롭 정책 |
 
@@ -149,6 +151,24 @@ class StreamManager:
             # join timeout 후 강제 kill
 ```
 
+**AudioManager 핵심 기능**:
+
+```python
+class AudioManager:
+    """오디오 스트림 및 분석 관리자"""
+    
+    def start_stream(self, config: AudioStreamConfig) -> AudioStreamState:
+        # 1. 프로세서 초기화 (ScreamDetector, RiskAnalyzer)
+        # 2. 리더 초기화 (RTSP 또는 Microphone)
+        # 3. 스트림 시작 및 분석 파이프라인 실행
+        
+    def _on_audio_chunk(self, ctx: AudioStreamContext, chunk: np.ndarray):
+        # 1. 비명 감지 (ResNet34)
+        # 2. STT 처리 (Whisper)
+        # 3. 위험 키워드 분석 (하이브리드 감지)
+        # 4. 이벤트 생성 및 WebSocket 전송
+```
+
 **의존성 규칙**:
 - Domain Layer만 import 가능
 - Infrastructure, Interface Layer import 금지
@@ -165,8 +185,16 @@ class StreamManager:
 
 | 디렉토리 | 파일 | 외부 의존성 |
 |----------|------|-------------|
-| `rtsp/` | `decoder.py` | OpenCV |
-| `ffmpeg/` | `publisher.py` | subprocess (FFmpeg) |
+| `video/` | `rtsp_decoder.py` | OpenCV |
+| `video/` | `ffmpeg_publisher.py` | subprocess (FFmpeg) |
+| `audio/readers/` | `rtsp_reader.py` | OpenCV |
+| `audio/readers/` | `mic_reader.py` | PyAudio |
+| `audio/processors/` | `scream_detector.py` | PyTorch (ResNet34) |
+| `audio/processors/` | `risk_analyzer.py` | faster-whisper, sentence-transformers |
+| `audio/processors/` | `hybrid_keyword_detector.py` | kiwipiepy, python-Levenshtein |
+| `audio/processors/` | `keyword_matcher.py` | (표준 라이브러리) |
+| `audio/processors/` | `morphological_matcher.py` | kiwipiepy, python-Levenshtein |
+| `audio/processors/` | `semantic_matcher.py` | sentence-transformers |
 | `inference/` | `onnx_runtime.py` | onnxruntime |
 | `inference/` | `torch_runtime.py` | PyTorch |
 | `transport/` | `http_client.py` | httpx |
@@ -200,6 +228,27 @@ class RTSPDecoder:
                     v
            write 예외 감지 → 재시작 (쿨다운 적용)
 ```
+
+**오디오 프로세서 구조**:
+
+```
+[오디오 청크] ──> [ScreamDetector] ──> [비명 감지 이벤트]
+     │
+     └──> [RiskAnalyzer]
+              ├──> [Whisper STT] ──> [텍스트]
+              └──> [HybridKeywordDetector]
+                       ├──> [Fast Path: ExpandedKeywordDict] (O(1) 조회)
+                       ├──> [Medium Path: MorphologicalMatcher] (Kiwi + Levenshtein)
+                       └──> [Heavy Path: SemanticSimilarityMatcher] (임베딩 + 코사인)
+```
+
+**하이브리드 키워드 감지 시스템**:
+
+3단계 계층형 아키텍처로 실시간성과 정확도를 균형있게 달성합니다:
+
+1. **Fast Path (ExpandedKeywordDict)**: 해시맵 기반 O(1) 조회로 90% 이상의 명확한 케이스를 즉시 처리
+2. **Medium Path (MorphologicalMatcher)**: Kiwi 형태소 분석 + Levenshtein 거리로 오타 및 어미 변형 처리
+3. **Heavy Path (SemanticSimilarityMatcher)**: Sentence Transformers 기반 의미 유사도로 문맥적 매칭 (비동기 처리)
 
 **의존성 규칙**:
 - Domain Layer import 가능
@@ -251,11 +300,15 @@ FastAPI 기반의 HTTP API를 통해 외부에서 시스템을 제어할 수 있
 ```
 interface/api/
 ├── app.py              # FastAPI 앱 생성, 라우터 등록
-├── dependencies.py     # 의존성 주입 (StreamManager, ConfigLoader 등)
+├── dependencies.py     # 의존성 주입 (StreamManager, AudioManager, ConfigLoader 등)
+├── ws_bus.py           # WebSocket 브로드캐스트 버스
 └── routes/
-    ├── streams.py      # /streams/* 엔드포인트
-    ├── config.py       # /config/* 엔드포인트
-    └── health.py       # /health, /metrics 엔드포인트
+    ├── video.py         # /api/video/streams/* 엔드포인트
+    ├── audio.py         # /api/audio/streams/* 엔드포인트
+    ├── config.py        # /config/* 엔드포인트
+    ├── health.py        # /health, /metrics 엔드포인트
+    ├── admin_ws.py      # /ws/admin WebSocket 엔드포인트
+    └── dashboard.py     # /admin/* 대시보드 엔드포인트
 ```
 
 ### 엔드포인트 목록
@@ -265,11 +318,18 @@ interface/api/
 | `/health` | GET | 시스템 상태 확인 (K8s liveness/readiness) |
 | `/health/live` | GET | 프로세스 생존 확인 |
 | `/health/ready` | GET | 서비스 준비 상태 확인 |
-| `/streams` | GET | 전체 스트림 목록 및 상태 조회 |
-| `/streams/{id}` | GET | 특정 스트림 상세 상태 조회 |
-| `/streams/{id}/start` | POST | 스트림 시작 |
-| `/streams/{id}/stop` | POST | 스트림 중지 |
-| `/streams/{id}/restart` | POST | 스트림 재시작 |
+| `/api/video/streams` | GET | 전체 비디오 스트림 목록 및 상태 조회 |
+| `/api/video/streams/{id}` | GET | 특정 비디오 스트림 상세 상태 조회 |
+| `/api/video/streams/{id}/start` | POST | 비디오 스트림 시작 |
+| `/api/video/streams/{id}/stop` | POST | 비디오 스트림 중지 |
+| `/api/video/streams/{id}/restart` | POST | 비디오 스트림 재시작 |
+| `/api/video/streams/{id}/disconnect` | POST | 비디오 스트림 연결 끊기 |
+| `/api/video/streams/by-input` | GET | 입력 URL로 출력 URL 조회 |
+| `/api/video/streams/register` | POST | 비디오 스트림 재등록 |
+| `/api/audio/streams` | GET | 전체 오디오 스트림 목록 조회 |
+| `/api/audio/streams` | POST | 오디오 스트림 등록 및 시작 |
+| `/api/audio/streams/{id}` | DELETE | 오디오 스트림 삭제 |
+| `/api/audio/streams/{id}/status` | GET | 오디오 스트림 상태 조회 |
 | `/config` | GET | 현재 설정 전체 조회 |
 | `/config` | PUT | 설정 전체 교체 (재시작 없이 적용) |
 | `/config/modules/{name}` | GET | 특정 모듈 설정 조회 |
@@ -285,16 +345,18 @@ interface/api/
 │                        Interface Layer                          │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │                    FastAPI Router                        │   │
-│  │  /streams/* ──> StreamController                         │   │
+│  │  /api/video/streams/* ──> VideoStreamController         │   │
+│  │  /api/audio/streams/* ──> AudioStreamController         │   │
 │  │  /config/*  ──> ConfigController                         │   │
 │  │  /health    ──> HealthController                         │   │
+│  │  /ws/admin  ──> AdminWebSocketController                 │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                              │                                  │
 │                              │ 의존성 주입                       │
 │                              v                                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                      Application Layer                          │
-│  StreamManager, ConfigManager, HealthService                    │
+│  StreamManager, AudioManager, ConfigManager, HealthService      │
 ├─────────────────────────────────────────────────────────────────┤
 │                      Domain Layer                               │
 │  Stream, Event, Module 모델                                     │
@@ -593,6 +655,8 @@ plugins/
 
 ## 데이터 흐름
 
+### 비디오 스트림 파이프라인
+
 ```
 ┌──────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │  RTSP    │────>│  Pipeline    │────>│   FFmpeg     │────>│ Flashphoner  │
@@ -616,6 +680,34 @@ plugins/
 5. 최종 프레임을 FFmpegPublisher로 전달
 6. 생성된 이벤트를 EventEmitter로 전달
 7. EventEmitter가 HTTP/WebSocket으로 VMS에 전송
+
+### 오디오 스트림 파이프라인
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ RTSP/Mic     │────>│ AudioManager │────>│   WebSocket  │
+│ Audio Source │     │   Pipeline   │     │   Broadcast   │
+└──────────────┘     └──────┬───────┘     └──────────────┘
+                            │
+                            ├──> [ScreamDetector] ──> 비명 감지 이벤트
+                            │
+                            └──> [RiskAnalyzer]
+                                     ├──> [Whisper STT] ──> 텍스트 변환
+                                     └──> [HybridKeywordDetector]
+                                              ├──> Fast Path (O(1) 조회)
+                                              ├──> Medium Path (형태소 분석)
+                                              └──> Heavy Path (의미 유사도)
+```
+
+**오디오 청크 처리 순서**:
+
+1. AudioReader(RTSP 또는 Microphone)가 오디오 청크 수신
+2. AudioManager가 청크를 분석 파이프라인에 전달
+3. ScreamDetector가 비명 감지 (ResNet34 모델)
+4. RiskAnalyzer가 STT 처리 (Whisper 모델)
+5. HybridKeywordDetector가 3단계 하이브리드 방식으로 키워드 감지
+6. 감지된 이벤트를 WebSocket으로 실시간 브로드캐스트
+7. EventEmitter를 통해 HTTP/WebSocket으로 VMS에 전송
 
 ---
 
@@ -668,23 +760,35 @@ src/sentinel_pipeline/
 │   │   └── module.py
 │   └── models/
 │       ├── event.py
-│       └── stream.py
+│       ├── stream.py
+│       └── audio_stream.py
 ├── application/                # 유스케이스
 │   ├── pipeline/
 │   │   ├── pipeline.py
 │   │   └── scheduler.py
 │   ├── stream/
 │   │   ├── manager.py
+│   │   ├── audio_manager.py
 │   │   └── health.py
 │   ├── config/
 │   │   └── manager.py          # 설정 동적 변경 관리
 │   └── event/
 │       └── emitter.py
 ├── infrastructure/             # 외부 연동
-│   ├── rtsp/
-│   │   └── decoder.py
-│   ├── ffmpeg/
-│   │   └── publisher.py
+│   ├── video/
+│   │   ├── rtsp_decoder.py
+│   │   └── ffmpeg_publisher.py
+│   ├── audio/
+│   │   ├── readers/
+│   │   │   ├── rtsp_reader.py
+│   │   │   └── mic_reader.py
+│   │   └── processors/
+│   │       ├── scream_detector.py
+│   │       ├── risk_analyzer.py
+│   │       ├── hybrid_keyword_detector.py
+│   │       ├── keyword_matcher.py
+│   │       ├── morphological_matcher.py
+│   │       └── semantic_matcher.py
 │   ├── inference/
 │   │   ├── onnx_runtime.py
 │   │   └── torch_runtime.py
@@ -695,11 +799,14 @@ src/sentinel_pipeline/
 │   ├── api/
 │   │   ├── app.py              # FastAPI 앱
 │   │   ├── dependencies.py     # 의존성 주입
+│   │   ├── ws_bus.py            # WebSocket 브로드캐스트 버스
 │   │   └── routes/
-│   │       ├── streams.py      # 스트림 제어 API
-│   │       ├── config.py       # 설정 API
-│   │       ├── health.py       # 헬스 체크 API
-│   │       └── dashboard.py    # 관리자 대시보드
+│   │       ├── video.py         # 비디오 스트림 제어 API
+│   │       ├── audio.py         # 오디오 스트림 제어 API
+│   │       ├── config.py        # 설정 API
+│   │       ├── health.py        # 헬스 체크 API
+│   │       ├── admin_ws.py      # 관리자 WebSocket API
+│   │       └── dashboard.py     # 관리자 대시보드
 │   ├── templates/              # Jinja2 템플릿
 │   │   ├── base.html
 │   │   └── dashboard/

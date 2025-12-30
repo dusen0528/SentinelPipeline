@@ -247,19 +247,33 @@ class EventEmitter:
 
                     # WS 브로드캐스트 (요약 전송)
                     try:
-                        asyncio.create_task(
-                            publish_event(
-                                {
-                                    "count": len(batch),
-                                    "types": [e.type.value for e in batch],
-                                    "stream_id": getattr(batch[0], "stream_id", None),
-                                    "module": getattr(batch[0], "module_name", None),
-                                    "ts": time.time(),
-                                }
+                        # 현재 실행 중인 루프 찾기 (메인 스레드의 루프)
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            # 현재 스레드에 루프가 없으면 메인 루프 가져오기 시도하지 않음
+                            # (FastAPI 앱 실행 시 메인 루프가 어딘가에 있겠지만, 여기서는 안전하게 처리)
+                            loop = None
+
+                        if loop and loop.is_running():
+                             loop.create_task(
+                                publish_event(
+                                    {
+                                        "count": len(batch),
+                                        "types": [e.type.value for e in batch],
+                                        "stream_id": getattr(batch[0], "stream_id", None),
+                                        "module": getattr(batch[0], "module_name", None),
+                                        "ts": time.time(),
+                                    }
+                                )
                             )
-                        )
-                    except RuntimeError:
-                        logger.debug("WS loop not running; skip event broadcast")
+                        else:
+                             # 실행 중인 루프가 없으면 run_coroutine_threadsafe 시도하지 않음
+                             # (보통 스레드 내에서 별도 루프 생성하지 않는 한 여기서 비동기 호출은 어려움)
+                             pass
+
+                    except Exception as e:
+                        logger.debug(f"WS broadcast skipped: {e}")
                     
                     # 전송
                     if self._sync_transport:

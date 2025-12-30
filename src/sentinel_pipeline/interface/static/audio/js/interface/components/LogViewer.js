@@ -7,16 +7,57 @@ export class LogViewer {
     constructor(containerId, maxLogs = 20) {
         this.container = document.getElementById(containerId);
         this.maxLogs = maxLogs;
+        this.allLogs = []; // 모든 로그 저장
+        this.filteredNodeId = null; // 현재 필터링된 노드 ID
     }
 
-    addLog(title, value, type = 'default') {
+    addLog(title, value, type = 'default', nodeId = null) {
         const logCard = this.createLogCard(title, value, type);
-        this.container.insertBefore(logCard, this.container.firstChild);
-
-        // Keep only maxLogs
-        while (this.container.children.length > this.maxLogs) {
-            this.container.removeChild(this.container.lastChild);
+        logCard.dataset.nodeId = nodeId || ''; // 노드 ID 저장
+        
+        // 모든 로그 배열에 추가
+        this.allLogs.unshift({
+            title,
+            value,
+            type,
+            nodeId: nodeId || null,
+            element: logCard
+        });
+        
+        // Keep only maxLogs in array
+        if (this.allLogs.length > this.maxLogs) {
+            const removed = this.allLogs.pop();
+            if (removed.element.parentNode) {
+                removed.element.parentNode.removeChild(removed.element);
+            }
         }
+        
+        // 필터링 적용
+        this.applyFilter();
+    }
+    
+    filterByNode(nodeId) {
+        this.filteredNodeId = nodeId;
+        this.applyFilter();
+    }
+    
+    clearFilter() {
+        this.filteredNodeId = null;
+        this.applyFilter();
+    }
+    
+    applyFilter() {
+        // 기존 로그 모두 제거
+        Renderer.removeChildren(this.container);
+        
+        // 필터링된 로그만 표시
+        const logsToShow = this.filteredNodeId 
+            ? this.allLogs.filter(log => log.nodeId === this.filteredNodeId)
+            : this.allLogs;
+        
+        logsToShow.forEach(log => {
+            this.container.appendChild(log.element);
+        });
     }
 
     createLogCard(title, value, type) {
@@ -52,6 +93,8 @@ export class LogViewer {
 
     clear() {
         Renderer.removeChildren(this.container);
+        this.allLogs = [];
+        this.filteredNodeId = null;
     }
 }
 
