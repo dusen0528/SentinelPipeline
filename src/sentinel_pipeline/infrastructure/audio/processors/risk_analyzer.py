@@ -159,7 +159,8 @@ class RiskAnalyzer(AudioProcessor):
                 'is_dangerous': risk_result['is_dangerous'],
                 'event_type': risk_result['event_type'],
                 'keyword': risk_result['keyword'],
-                'confidence': risk_result['confidence']
+                'confidence': risk_result['confidence'],
+                'path': risk_result.get('path', 'none')
             }
             
         except Exception as e:

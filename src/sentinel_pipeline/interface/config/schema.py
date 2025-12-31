@@ -131,6 +131,13 @@ class AudioStreamConfig(BaseModel):
     scream_threshold: float = Field(0.8, description="비명 감지 임계값")
     stt_enabled: bool = Field(True, description="STT 활성화 여부")
     stt_model_size: str = Field("base", description="Whisper 모델 크기")
+    
+    # 하이브리드 키워드 감지 설정
+    enable_medium_path: bool = Field(True, description="Medium Path(형태소 분석) 활성화")
+    enable_heavy_path: bool = Field(True, description="Heavy Path(의미 유사도) 활성화")
+    heavy_path_async: bool = Field(True, description="Heavy Path 비동기 처리 여부")
+    semantic_threshold: float = Field(0.7, description="의미 유사도 임계값")
+    use_korean_model: bool = Field(False, description="한국어 특화 모델 사용 여부")
 
     @model_validator(mode="after")
     def validate_source(self) -> "AudioStreamConfig":

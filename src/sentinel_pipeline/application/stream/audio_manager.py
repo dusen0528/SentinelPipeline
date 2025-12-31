@@ -87,7 +87,12 @@ class AudioManager:
                 
                 if config.stt_enabled:
                     ctx.risk_analyzer = RiskAnalyzer(
-                        model_size=config.stt_model_size
+                        model_size=config.stt_model_size,
+                        enable_medium_path=config.enable_medium_path,
+                        enable_heavy_path=config.enable_heavy_path,
+                        heavy_path_async=config.heavy_path_async,
+                        semantic_threshold=config.semantic_threshold,
+                        use_korean_model=config.use_korean_model
                     )
                 
                 # 2. 리더 초기화
@@ -315,7 +320,8 @@ class AudioManager:
                         "is_dangerous": stt_result.get('is_dangerous', False),
                         "keyword": stt_result.get('keyword', ''),
                         "confidence": stt_result.get('confidence', 0.0),
-                        "event_type": stt_result.get('event_type', None)
+                        "event_type": stt_result.get('event_type', None),
+                        "path": stt_result.get('path', 'none')
                     }
                 }
             }

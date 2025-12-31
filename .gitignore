@@ -4,7 +4,7 @@ __pycache__/
 uv.lock
 .env
 # Model files (too large for git)
-models/
+/models/
 *.pt
 *.onnx
 *.engine

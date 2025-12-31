@@ -53,7 +53,12 @@
         "chunk_duration": 2.0,
         "scream_threshold": 0.8,
         "stt_enabled": true,
-        "stt_model_size": "base"
+        "stt_model_size": "base",
+        "enable_medium_path": true,
+        "enable_heavy_path": true,
+        "heavy_path_async": true,
+        "semantic_threshold": 0.7,
+        "use_korean_model": false
       }
     ],
   

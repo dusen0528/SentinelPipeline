@@ -203,6 +203,7 @@ class HybridKeywordDetector:
             "event_type": result["event_type"],
             "keyword": result["keyword"],
             "confidence": result["confidence"],
+            "path": result["path"],
             "original_text": result["original_text"],
         }
 
