@@ -129,6 +129,9 @@ class AudioStreamConfig(BaseModel):
     
     # 분석 설정
     scream_threshold: float = Field(0.8, description="비명 감지 임계값")
+    scream_model_path: str | None = Field(None, description="비명 감지 모델 파일 경로 (None이면 기본값 사용)")
+    scream_model_arch: str = Field("auto", description="비명 감지 모델 아키텍처 ('auto', 'resnet18', 'resnet34')")
+    scream_enable_filtering: bool = Field(True, description="비명 감지 필터링 활성화 여부")
     stt_enabled: bool = Field(True, description="STT 활성화 여부")
     stt_model_size: str = Field("base", description="Whisper 모델 크기")
     
@@ -318,6 +321,10 @@ class AppConfig(BaseModel):
         if len(audio_stream_ids) != len(set(audio_stream_ids)):
             raise ValueError("오디오 스트림 ID가 중복됩니다")
             
+        # 성능 테스트 결과에 따른 오디오 스트림 개수 제한 (Hard Limit: 9)
+        if len(audio_stream_ids) > 9:
+            raise ValueError(f"오디오 스트림 개수({len(audio_stream_ids)})가 시스템 허용 한계(9개)를 초과했습니다. 성능 저하를 방지하기 위해 스트림 수를 줄여주세요.")
+
         return self
 
 

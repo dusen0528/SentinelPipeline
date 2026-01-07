@@ -13,7 +13,7 @@
       },
       {
         "name": "ScreamDetectModule",
-        "enabled": false,
+        "enabled": true,
         "priority": 120,
         "timeout_ms": 40,
         "options": {
@@ -51,7 +51,10 @@
         "enabled": false,
         "sample_rate": 16000,
         "chunk_duration": 2.0,
-        "scream_threshold": 0.8,
+        "scream_threshold": 0.6,
+        "scream_model_path": null,
+        "scream_model_arch": "auto",
+        "scream_enable_filtering": true,
         "stt_enabled": true,
         "stt_model_size": "base",
         "enable_medium_path": true,

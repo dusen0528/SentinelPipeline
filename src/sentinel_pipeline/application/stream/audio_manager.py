@@ -43,8 +43,14 @@ class AudioStreamContext:
         # 상태 추적
         self.last_scream_time = 0.0
         self.scream_cooldown = 2.0
-        self.last_stt_time = 0.0
-        self.stt_interval = 1.0
+        
+        # Latest-Win 전략을 위한 버퍼 및 상태
+        self.latest_chunk = None  # 가장 최신 오디오 청크 (대기열 크기 1 효과)
+        self.is_processing = False # 분석 루프 실행 중 여부
+        
+        # 성능 측정용
+        self.chunk_counter = 0  # 청크 카운터 (Sampling 로깅용)
+        self.chunk_duration_ms = int(config.chunk_duration * 1000)  # 청크 크기 (ms)
 
 
 class AudioManager:
@@ -59,7 +65,7 @@ class AudioManager:
         
         # 기본 모델 경로 (설정에서 주입받거나 상수로 정의)
         self.model_dir = Path("models/audio")
-        self.scream_model_path = self.model_dir / "Resnet34_Model.pt"
+        self.scream_model_path = self.model_dir / "resnet18_scream_detector.pth"
         
     def set_dependencies(self, event_emitter: EventEmitter):
         self._event_emitter = event_emitter
@@ -80,9 +86,14 @@ class AudioManager:
             
             try:
                 # 1. 프로세서 초기화
+                # 모델 경로 결정: config에 지정된 경로가 있으면 사용, 없으면 기본값
+                model_path = config.scream_model_path if config.scream_model_path else str(self.scream_model_path)
+                
                 ctx.scream_detector = ScreamDetector(
-                    model_path=str(self.scream_model_path),
-                    threshold=config.scream_threshold
+                    model_path=model_path,
+                    threshold=config.scream_threshold,
+                    model_arch=config.scream_model_arch,
+                    enable_filtering=config.scream_enable_filtering
                 )
                 
                 if config.stt_enabled:
@@ -166,13 +177,24 @@ class AudioManager:
 
     def _on_audio_chunk(self, ctx: AudioStreamContext, chunk: Any):
         """오디오 청크 처리 콜백"""
+        # ⚠️ time.time() 대신 time.monotonic() 사용 (멀티 프로세스/스레드 안정성)
+        chunk_received_time = time.monotonic()
+        
         try:
             ctx.state.stats.record_chunk()
-            current_time = time.time()
+            ctx.chunk_counter += 1
+            current_time = time.monotonic()  # time.time() 대신 time.monotonic() 사용
             
             # 1. 비명 감지 (실시간성이 중요하므로 동기 처리)
+            # ScreamDetector는 빠르므로 항상 처리 (Drop 대상 아님)
+            inference_start_time = time.monotonic()
             scream_result = ctx.scream_detector.process(chunk)
+            inference_done_time = time.monotonic()
             scream_detected = scream_result['is_scream']
+            
+            # 추론 시간 계산
+            inference_ms = (inference_done_time - inference_start_time) * 1000
+            total_latency_ms = (inference_done_time - chunk_received_time) * 1000
             
             # 파이프라인 상태를 WebSocket으로 전송 (프론트엔드가 기대하는 형식)
             self._send_pipeline_status(
@@ -183,6 +205,9 @@ class AudioManager:
             )
             
             if scream_detected:
+                event_emitted_time = time.monotonic()
+                event_latency_ms = (event_emitted_time - chunk_received_time) * 1000
+                
                 if current_time - ctx.last_scream_time > ctx.scream_cooldown:
                     ctx.last_scream_time = current_time
                     ctx.state.stats.scream_detected_count += 1
@@ -199,16 +224,62 @@ class AudioManager:
                         confidence=scream_result['confidence'],
                         details={'threshold': scream_result['threshold']}
                     )
-            
-            # 2. STT 및 위험 분석 (무거우므로 비동기 처리)
-            # 비명이 감지되지 않았을 때만, 그리고 일정 간격으로 실행
-            elif ctx.risk_analyzer and (current_time - ctx.last_stt_time > ctx.stt_interval):
-                ctx.last_stt_time = current_time
-                self._executor.submit(self._process_risk_analysis, ctx, chunk)
+                    
+                    # 이벤트 발생 시 항상 로깅 (Event-Triggered 방식)
+                    logger.info(
+                        f"[STREAM={ctx.stream_id}] chunk={ctx.chunk_counter} "
+                        f"chunk_ms={ctx.chunk_duration_ms} infer={inference_ms:.1f}ms "
+                        f"score={scream_result.get('confidence', 0.0):.2f} "
+                        f"event=DETECTED latency={event_latency_ms:.1f}ms"
+                    )
+            else:
+                # 정상 상태: Sampling 방식 (1%만 로깅)
+                if ctx.chunk_counter % 100 == 0:
+                    logger.debug(
+                        f"[STREAM={ctx.stream_id}] chunk={ctx.chunk_counter} "
+                        f"chunk_ms={ctx.chunk_duration_ms} infer={inference_ms:.1f}ms "
+                        f"score={scream_result.get('confidence', 0.0):.2f} "
+                        f"event=NORMAL latency={total_latency_ms:.1f}ms"
+                    )
+                
+                # 2. STT 및 위험 분석 (Latest-Win 전략)
+                # - 비명이 감지되지 않은 경우에만 STT 분석 수행
+                # - 최신 청크를 버퍼에 덮어씀 (Drop Oldest 자동 적용)
+                # - 작업자가 쉬고 있으면 깨워서 일을 시킴
+                if ctx.risk_analyzer:
+                    ctx.latest_chunk = chunk
+                    
+                    if not ctx.is_processing:
+                        ctx.is_processing = True
+                        self._executor.submit(self._process_loop, ctx)
                 
         except Exception as e:
             logger.error(f"Error processing audio chunk for {ctx.stream_id}: {e}")
             ctx.state.stats.record_error()
+
+    def _process_loop(self, ctx: AudioStreamContext):
+        """분석 작업 루프 (항상 최신 청크 처리)"""
+        try:
+            while True:
+                # 1. 가장 최신 데이터 가져오기 (Atomic에 가까운 동작)
+                # 락을 걸지 않아도 Python의 변수 할당은 Atomic하지만, 
+                # 확실하게 가져오고 비우기 위해 임시 변수 사용
+                chunk = ctx.latest_chunk
+                ctx.latest_chunk = None
+                
+                # 더 이상 처리할 데이터가 없으면 종료
+                if chunk is None:
+                    ctx.is_processing = False
+                    break
+                
+                # 2. 무거운 분석 수행 (여기서 시간 소요)
+                # 이 동안 들어온 데이터는 ctx.latest_chunk에 계속 덮어씌워짐 (Drop Oldest)
+                self._process_risk_analysis(ctx, chunk)
+                
+                # 3. 루프 반복 -> 그 사이에 새로운 데이터가 들어왔는지 확인하러 감
+        except Exception as e:
+            logger.error(f"Analysis loop error for {ctx.stream_id}: {e}")
+            ctx.is_processing = False
 
     def _process_risk_analysis(self, ctx: AudioStreamContext, chunk: Any):
         """백그라운드 STT 처리"""
