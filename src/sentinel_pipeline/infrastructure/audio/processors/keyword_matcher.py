@@ -132,3 +132,14 @@ class ExpandedKeywordDict:
         ]
         return list(set(variations))  # 중복 제거
 
+    def get_all_variations_dict(self) -> dict[str, list[str]]:
+        """모든 대표키워드와 그 변형들의 딕셔너리 반환
+        
+        Returns:
+            {대표키워드: [변형1, 변형2, ...], ...}
+        """
+        result = {}
+        for base_keyword in self.base_keywords:
+            result[base_keyword] = self.get_variations(base_keyword)
+        return result
+

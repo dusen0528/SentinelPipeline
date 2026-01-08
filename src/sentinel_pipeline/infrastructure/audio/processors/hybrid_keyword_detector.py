@@ -57,7 +57,7 @@ class HybridKeywordDetector:
         self.enable_heavy_path = enable_heavy_path
         self.heavy_path_async = heavy_path_async
 
-        # Medium Path 초기화
+        # Medium Path 초기화 (모든 variations와 비교하도록 개선)
         self.medium_path: MorphologicalMatcher | None = None
         if enable_medium_path:
             try:
@@ -66,30 +66,48 @@ class HybridKeywordDetector:
                     kw: self.fast_path.event_type_map.get(kw, EventType.CUSTOM)
                     for kw in keywords
                 }
+                # 모든 variations 딕셔너리 가져오기
+                all_variations = self.fast_path.get_all_variations_dict()
+                
                 self.medium_path = MorphologicalMatcher(
-                    keywords=keywords, event_type_map=event_type_map
+                    keywords=keywords, 
+                    event_type_map=event_type_map,
+                    all_variations=all_variations,
+                    similarity_threshold=0.65,  # STT 오인식 고려하여 임계값 낮춤
                 )
-                logger.info("Medium Path 초기화 완료")
+                logger.info(f"Medium Path 초기화 완료 (variations: {sum(len(v) for v in all_variations.values())}개)")
             except Exception as e:
                 logger.warning(f"Medium Path 초기화 실패: {e}, 비활성화됩니다.")
                 self.enable_medium_path = False
 
-        # Heavy Path 초기화
+        # Heavy Path 초기화 (의미 유사도 - 모든 variations 포함)
         self.heavy_path: SemanticSimilarityMatcher | None = None
         if enable_heavy_path:
             try:
+                # 대표 키워드뿐만 아니라 주요 variations도 포함
                 keywords = self.fast_path.get_all_keywords()
-                event_type_map = {
-                    kw: self.fast_path.event_type_map.get(kw, EventType.CUSTOM)
-                    for kw in keywords
-                }
+                all_variations = self.fast_path.get_all_variations_dict()
+                
+                # 의미 유사도 비교용 키워드 목록 (대표 + 주요 variations)
+                semantic_keywords = list(keywords)
+                for base_kw, variations in all_variations.items():
+                    # 각 카테고리에서 의미가 명확한 variations 추가
+                    for var in variations[:10]:  # 상위 10개만
+                        if var not in semantic_keywords:
+                            semantic_keywords.append(var)
+                
+                event_type_map = {}
+                for kw in semantic_keywords:
+                    base = self.fast_path.lookup_table.get(kw, kw)
+                    event_type_map[kw] = self.fast_path.event_type_map.get(base, EventType.CUSTOM)
+                
                 self.heavy_path = SemanticSimilarityMatcher(
-                    keywords=keywords,
+                    keywords=semantic_keywords,
                     event_type_map=event_type_map,
-                    similarity_threshold=semantic_threshold,
-                    use_korean_model=use_korean_model,
+                    similarity_threshold=max(0.5, semantic_threshold - 0.1),  # 임계값 낮춤
+                    use_korean_model=True,  # 한국어 모델 기본 사용
                 )
-                logger.info("Heavy Path 초기화 완료 (비동기 로딩 중)")
+                logger.info(f"Heavy Path 초기화 완료 (keywords: {len(semantic_keywords)}개, 비동기 로딩 중)")
             except Exception as e:
                 logger.warning(f"Heavy Path 초기화 실패: {e}, 비활성화됩니다.")
                 self.enable_heavy_path = False
