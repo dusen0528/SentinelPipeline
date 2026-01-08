@@ -1,19 +1,16 @@
 """
 비명 감지 프로세서
 
-ResNet 기반 모델을 사용하여 오디오에서 비명을 감지합니다.
-ResNet18 및 ResNet34를 지원하며, 추가 필터링 로직을 포함합니다.
+ResNet18 기반 모델을 사용하여 오디오에서 비명을 감지합니다.
+기계음 필터링 및 비명 강도 분석 기능을 포함합니다.
 """
 
 import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchaudio
 import librosa
 import numpy as np
-from PIL import Image
-from torchvision import transforms
 from typing import Tuple, Any, Optional, Dict
 import logging
 
@@ -24,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 class ScreamDetector(AudioProcessor):
     """
-    ResNet 기반 비명 감지기
+    ResNet18 기반 비명 감지기
     
-    ResNet18 또는 ResNet34 모델을 사용하며, 기계음 필터링 및 비명 강도 분석 기능을 포함합니다.
+    기계음 필터링 및 비명 강도 분석 기능을 포함합니다.
     """
     
     def __init__(
@@ -34,7 +31,7 @@ class ScreamDetector(AudioProcessor):
         model_path: str,
         threshold: float = 0.6,
         device: str = "auto",
-        model_arch: str = "auto",  # "auto", "resnet18", "resnet34"
+        model_arch: str = "resnet18",  # "resnet18" (ResNet34 레거시 지원 제거)
         enable_filtering: bool = True,  # 필터링 로직 활성화 여부
     ):
         """
@@ -42,7 +39,7 @@ class ScreamDetector(AudioProcessor):
             model_path: 모델 가중치 파일 경로 (.pth)
             threshold: 비명 판정 임계값 (0.0 ~ 1.0)
             device: 디바이스 ('auto', 'cuda', 'cpu')
-            model_arch: 모델 아키텍처 ('auto', 'resnet18', 'resnet34')
+            model_arch: 모델 아키텍처 ('resnet18')
             enable_filtering: 기계음 필터링 및 비명 강도 분석 활성화 여부
         """
         self.model_path = model_path
@@ -61,25 +58,9 @@ class ScreamDetector(AudioProcessor):
         self.hop_length = 512
         self.n_mels = 64
         
-        # 모델 아키텍처 자동 감지 또는 명시적 설정
-        self.model_arch = model_arch
-        if model_arch == "auto":
-            # 파일명이나 모델 구조를 보고 자동 감지
-            if "resnet18" in model_path.lower() or "18" in model_path.lower():
-                self.model_arch = "resnet18"
-            elif "resnet34" in model_path.lower() or "34" in model_path.lower():
-                self.model_arch = "resnet34"
-            else:
-                # 기본값: ResNet34 (기존 호환성)
-                self.model_arch = "resnet34"
+        # 모델 아키텍처 설정 (ResNet18만 지원)
+        self.model_arch = "resnet18"
         
-        # 멜스펙트로그램 변환기 (librosa 사용 방식과 호환)
-        self.mel_transform = torchaudio.transforms.MelSpectrogram(
-            sample_rate=self.sample_rate,
-            n_mels=self.n_mels,
-            n_fft=self.n_fft,
-            hop_length=self.hop_length
-        ).to(self.device)
         
         self.model = self._load_model()
         self.model.eval()
@@ -94,15 +75,10 @@ class ScreamDetector(AudioProcessor):
         try:
             from torchvision import models
             
-            # 모델 아키텍처 선택
-            if self.model_arch == "resnet18":
-                model = models.resnet18(weights=None)
-                # 1채널(Grayscale) 입력 수용
-                model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            else:  # resnet34
-                model = models.resnet34(weights=None)
-                # ResNet34는 기본적으로 3채널 입력이지만, 1채널로 변경 가능
-                # 기존 호환성을 위해 3채널 유지 (이미지 변환 방식 사용)
+            # ResNet18 모델 로드
+            model = models.resnet18(weights=None)
+            # 1채널(Grayscale) 입력 수용
+            model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
             
             # 출력 레이어 설정 (2개 클래스: Non-Scream, Scream)
             num_ftrs = model.fc.in_features
@@ -143,11 +119,7 @@ class ScreamDetector(AudioProcessor):
             return model.to(self.device)
         except Exception as e:
             logger.error(f"Error loading model architecture: {e}")
-            # Fallback to ResNet34
-            from torchvision.models import resnet34
-            model = resnet34(weights=None)
-            model.fc = nn.Linear(model.fc.in_features, 2)
-            return model.to(self.device)
+            raise
 
     def _preprocess(self, audio: np.ndarray) -> torch.Tensor:
         """
@@ -168,54 +140,35 @@ class ScreamDetector(AudioProcessor):
             audio = audio[:target_len]
         
         # Mel-Spectrogram 변환 (librosa 방식 - ResNet18 모델과 호환)
-        if self.model_arch == "resnet18":
-            melspec = librosa.feature.melspectrogram(
-                y=audio, sr=self.sample_rate,
-                n_mels=self.n_mels, n_fft=self.n_fft, hop_length=self.hop_length
-            )
-            melspec_db = librosa.power_to_db(melspec, ref=np.max)
-            
-            # 정규화 (Min-Max Scaling)
-            min_val, max_val = melspec_db.min(), melspec_db.max()
-            if max_val - min_val > 0:
-                melspec_norm = (melspec_db - min_val) / (max_val - min_val)
-            else:
-                melspec_norm = melspec_db
-            
-            # [Batch, Channel, Height, Width] 형태로 변환
-            tensor = torch.tensor(melspec_norm, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        # 참모 의견: 학습 시와 토씨 하나 안 틀리고 똑같이 적용해야 함
+        melspec = librosa.feature.melspectrogram(
+            y=audio, sr=self.sample_rate,
+            n_mels=self.n_mels, n_fft=self.n_fft, hop_length=self.hop_length
+        )
+        melspec_db = librosa.power_to_db(melspec, ref=np.max)
+        
+        # 정규화 (Min-Max Scaling) - 학습 시와 동일한 방식
+        # 주의: 마이크 입력 감도(Gain)에 따라 RMS 값이 달라질 수 있음 (필터 임계값 튜닝 필요 가능성)
+        min_val, max_val = melspec_db.min(), melspec_db.max()
+        if max_val - min_val > 0:
+            melspec_norm = (melspec_db - min_val) / (max_val - min_val)
         else:
-            # ResNet34 방식 (기존 호환성 유지)
-            audio_tensor = torch.from_numpy(audio).float()
-            if audio_tensor.dim() == 1:
-                audio_tensor = audio_tensor.unsqueeze(0)
-            
-            audio_tensor = audio_tensor.to(self.device)
-            mel_spec = self.mel_transform(audio_tensor)
-            mel_spec = mel_spec.squeeze(0)
-            mel_spec = torch.log2(mel_spec + 1e-10)
-            
-            # 이미지 변환을 위한 정규화
-            mel_spec_np = mel_spec.cpu().numpy()
-            mel_spec_np = (mel_spec_np - mel_spec_np.min()) / (mel_spec_np.max() - mel_spec_np.min() + 1e-10)
-            mel_spec_np = (mel_spec_np * 255).astype(np.uint8)
-            
-            img = Image.fromarray(mel_spec_np, mode='L')
-            img = img.convert('RGB')
-            
-            # 이미지 변환
-            image_transform = transforms.Compose([
-                transforms.Resize((64, 862)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            ])
-            tensor = image_transform(img).unsqueeze(0)
+            melspec_norm = melspec_db
+        
+        # [Batch, Channel, Height, Width] 형태로 변환
+        tensor = torch.tensor(melspec_norm, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
         
         return tensor.to(self.device)
     
     def _is_human_voice(self, segment: np.ndarray) -> Tuple[bool, str]:
         """
-        기계음/비프음 필터링 (True면 사람 목소리/환경음 가능성 높음)
+        사람 목소리인지 기계음인지 판별 (제공된 코드의 정교한 버전)
+        
+        기계음(비프음) 특징:
+        - Spectral Flatness가 매우 낮음 (단일 주파수)
+        - Spectral Bandwidth가 매우 좁음
+        - Zero-Crossing Rate가 매우 규칙적
+        - Pitch 변화가 거의 없음
         
         Args:
             segment: 오디오 세그먼트
@@ -226,42 +179,82 @@ class ScreamDetector(AudioProcessor):
         if len(segment) < self.sample_rate * 0.1:
             return True, "너무 짧음"
         
+        #무음 체크 (0 나누기 에러 방지)
+        if np.max(np.abs(segment)) < 0.001:
+            return False, "무음"
+        
         try:
-            # Spectral Flatness (낮을수록 톤성 강함 -> 비프음 등)
+            # 1. Spectral Flatness (0에 가까우면 톤성, 1에 가까우면 노이즈)
             flatness = librosa.feature.spectral_flatness(y=segment)[0]
             mean_flatness = np.mean(flatness)
             
-            # Spectral Bandwidth
+            # 2. Spectral Bandwidth (주파수 폭)
             bandwidth = librosa.feature.spectral_bandwidth(y=segment, sr=self.sample_rate)[0]
             mean_bandwidth = np.mean(bandwidth)
             
-            score = 0
-            reasons = []
+            # 3. Spectral Centroid 변화량 (피치 변화)
+            centroid = librosa.feature.spectral_centroid(y=segment, sr=self.sample_rate)[0]
+            centroid_std = np.std(centroid)
             
+            # 4. Zero-Crossing Rate 변화량 (규칙성)
+            zcr = librosa.feature.zero_crossing_rate(segment)[0]
+            zcr_std = np.std(zcr)
+            
+            # 판정 로직
+            reasons = []
+            score = 0
+            
+            # 비프음 특징: 매우 낮은 flatness (순수 톤)
             if mean_flatness < 0.01:
+                reasons.append(f"순수톤(flatness={mean_flatness:.4f})")
                 score -= 2
-                reasons.append("순수톤")
             elif mean_flatness < 0.05:
+                reasons.append(f"톤성 강함(flatness={mean_flatness:.4f})")
                 score -= 1
             else:
                 score += 1
             
+            # 비프음 특징: 좁은 bandwidth
             if mean_bandwidth < 500:
+                reasons.append(f"좁은주파수(bw={mean_bandwidth:.0f}Hz)")
                 score -= 2
-                reasons.append("좁은대역")
             elif mean_bandwidth < 1000:
                 score -= 1
             else:
                 score += 1
             
-            return score > 0, ", ".join(reasons) if reasons else "정상"
+            # 비프음 특징: centroid 변화 적음 (일정한 피치)
+            if centroid_std < 100:
+                reasons.append(f"피치불변(std={centroid_std:.0f})")
+                score -= 1
+            else:
+                score += 1
+            
+            # 비프음 특징: zcr 변화 적음 (규칙적)
+            if zcr_std < 0.01:
+                reasons.append(f"규칙적(zcr_std={zcr_std:.4f})")
+                score -= 1
+            else:
+                score += 1
+            
+            # 최종 판정
+            is_voice = score > 0
+            reason = ", ".join(reasons) if reasons else "정상 음성"
+            
+            return is_voice, reason
         except Exception as e:
             logger.debug(f"Error in _is_human_voice: {e}")
             return True, "검사 실패"
     
     def _is_scream_intensity(self, segment: np.ndarray) -> Tuple[bool, str]:
         """
-        비명 강도 분석 (말소리와 비명 구분)
+        비명 강도 분석 - 일반 말소리와 비명을 구분 (엄격한 기준)
+        
+        비명의 핵심 특징:
+        - 매우 높은 절대 에너지 (크게 소리침)
+        - 지속적인 고주파 에너지 (비명은 계속 높은 음)
+        - 급격한 onset (갑자기 시작)
+        - 높은 피치 (일반 말소리보다 높음)
         
         Args:
             segment: 오디오 세그먼트
@@ -272,54 +265,86 @@ class ScreamDetector(AudioProcessor):
         if len(segment) < self.sample_rate * 0.1:
             return False, "너무 짧음"
         
+        # 무음 체크 (0 나누기 에러 방지)
+        if np.max(np.abs(segment)) < 0.001:
+            return False, "무음"
+        
         try:
             score = 0
             reasons = []
             
-            # 1. RMS (에너지)
+            # 1. 절대 에너지 수준 (비명은 RMS > 0.05 이상)
             rms = librosa.feature.rms(y=segment)[0]
             mean_rms = np.mean(rms)
-            if mean_rms > 0.08:
-                score += 2
-                reasons.append("매우큼")
-            elif mean_rms > 0.05:
-                score += 1
-                reasons.append("큼")
+            max_rms = np.max(rms)
             
-            # 2. 주파수 대역 비율 (비명은 1.6k~4k 대역 에너지 집중)
+            if mean_rms > 0.08:  # 매우 큰 소리
+                score += 2
+                reasons.append(f"큰소리(rms={mean_rms:.3f})")
+            elif mean_rms > 0.05:  # 큰 소리
+                score += 1
+                reasons.append(f"소리큼(rms={mean_rms:.3f})")
+            
+            # 2. 지속적인 고에너지 (비명은 계속 크게)
+            # RMS의 최소값도 높아야 함 (잠깐 큰 소리가 아니라 계속 큰 소리)
+            min_rms = np.min(rms[rms > 0.01]) if np.any(rms > 0.01) else 0
+            sustained_ratio = min_rms / (max_rms + 1e-6)
+            
+            if sustained_ratio > 0.3:  # 지속적으로 큰 소리
+                score += 1
+                reasons.append(f"지속적({sustained_ratio:.2f})")
+            
+            # 3. 고주파 집중도 (비명은 1000-4000Hz에 에너지 집중)
             stft = np.abs(librosa.stft(segment, n_fft=2048))
             freq_bins = stft.shape[0]
-            low = np.mean(stft[:int(freq_bins*0.2), :])
-            mid = np.mean(stft[int(freq_bins*0.2):int(freq_bins*0.5), :])  # Scream band
-            high = np.mean(stft[int(freq_bins*0.5):, :])
             
-            ratio = mid / (low + high + 1e-6)
-            if ratio > 1.5:
+            # 주파수 대역별 에너지
+            low_band = np.mean(stft[:int(freq_bins*0.2), :])   # 0-1600Hz
+            mid_band = np.mean(stft[int(freq_bins*0.2):int(freq_bins*0.5), :])  # 1600-4000Hz (비명 대역)
+            high_band = np.mean(stft[int(freq_bins*0.5):, :])  # 4000Hz+
+            
+            # 비명 대역 비율
+            scream_band_ratio = mid_band / (low_band + high_band + 1e-6)
+            
+            if scream_band_ratio > 1.5:  # 비명 대역에 에너지 집중
                 score += 2
-                reasons.append("비명대역")
-            elif ratio > 1.0:
+                reasons.append(f"비명대역({scream_band_ratio:.2f})")
+            elif scream_band_ratio > 1.0:
                 score += 1
+                reasons.append(f"중고주파({scream_band_ratio:.2f})")
             
-            # 3. 피치 (높은음)
+            # 4. 높은 평균 피치 (비명은 보통 500Hz 이상)
             pitches, magnitudes = librosa.piptrack(y=segment, sr=self.sample_rate, fmin=100, fmax=4000)
-            pitch_vals = []
+            pitch_values = []
             for t in range(pitches.shape[1]):
-                idx = magnitudes[:, t].argmax()
-                p = pitches[idx, t]
-                if p > 100:
-                    pitch_vals.append(p)
+                index = magnitudes[:, t].argmax()
+                pitch = pitches[index, t]
+                if pitch > 100:  # 유효한 피치만
+                    pitch_values.append(pitch)
             
-            if len(pitch_vals) > 5:
-                mean_pitch = np.mean(pitch_vals)
-                if mean_pitch > 600:
+            if len(pitch_values) > 5:
+                mean_pitch = np.mean(pitch_values)
+                if mean_pitch > 600:  # 매우 높은 피치
                     score += 2
-                    reasons.append("초고음")
-                elif mean_pitch > 400:
+                    reasons.append(f"고피치({mean_pitch:.0f}Hz)")
+                elif mean_pitch > 400:  # 높은 피치
                     score += 1
-                    reasons.append("고음")
+                    reasons.append(f"피치높음({mean_pitch:.0f}Hz)")
             
-            # 5점 이상이어야 '강렬한 비명'으로 인정
-            return score >= 5, ", ".join(reasons) if reasons else "약함"
+            # 5. Spectral Rolloff (비명은 에너지가 고주파까지 분포)
+            rolloff = librosa.feature.spectral_rolloff(y=segment, sr=self.sample_rate, roll_percent=0.85)[0]
+            mean_rolloff = np.mean(rolloff)
+            
+            if mean_rolloff > 4000:  # 에너지가 4000Hz 이상까지 분포
+                score += 1
+                reasons.append(f"롤오프({mean_rolloff:.0f}Hz)")
+            
+            # 최종 판정: 5점 이상이어야 비명 (더 엄격)
+            # 최대 가능 점수: 2+1+2+2+1 = 8점
+            is_intense = score >= 5
+            reason = ", ".join(reasons) if reasons else "일반 음성"
+            
+            return is_intense, reason
         except Exception as e:
             logger.debug(f"Error in _is_scream_intensity: {e}")
             return False, "검사 실패"
@@ -347,7 +372,21 @@ class ScreamDetector(AudioProcessor):
             except Exception as e:
                 logger.warning(f"Resampling failed: {e}, using original audio")
         
+        # 0. 무음(Silence) 체크 0 나누기 에러 방지
+        # 아주 작은 소리는 아예 계산 안 함 (GPU 전송 전에 차단)
+        max_amplitude = np.max(np.abs(audio_data)) if len(audio_data) > 0 else 0.0
+        if max_amplitude < 0.001:
+            return {
+                "is_scream": False,
+                "prob": 0.0,
+                "status": "FILTERED",
+                "reason": "무음(Silence)",
+                "confidence": 0.0,
+                "threshold": self.threshold
+            }
+        
         # 1. 기계음 필터링 (활성화된 경우)
+        # 필터링은 CPU에서 먼저 실행, GPU 전송 전에 차단
         if self.enable_filtering:
             is_human, voice_reason = self._is_human_voice(audio_data)
             if not is_human:
