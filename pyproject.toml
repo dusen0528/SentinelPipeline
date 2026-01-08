@@ -45,6 +45,7 @@ dependencies = [
     "kiwipiepy>=0.20.0",
     "python-Levenshtein>=0.23.0",
     "sentence-transformers>=2.5.0",
+    "pandas>=2.3.3",
 ]
 
 [project.optional-dependencies]
