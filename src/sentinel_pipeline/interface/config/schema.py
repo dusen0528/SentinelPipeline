@@ -130,7 +130,7 @@ class AudioStreamConfig(BaseModel):
     # 분석 설정
     scream_threshold: float = Field(0.8, description="비명 감지 임계값")
     scream_model_path: str | None = Field(None, description="비명 감지 모델 파일 경로 (None이면 기본값 사용)")
-    scream_model_arch: str = Field("auto", description="비명 감지 모델 아키텍처 ('auto', 'resnet18', 'resnet34')")
+    scream_model_arch: str = Field("resnet18", description="비명 감지 모델 아키텍처 ('resnet18')")
     scream_enable_filtering: bool = Field(True, description="비명 감지 필터링 활성화 여부")
     stt_enabled: bool = Field(True, description="STT 활성화 여부")
     stt_model_size: str = Field("base", description="Whisper 모델 크기")

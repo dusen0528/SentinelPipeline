@@ -53,7 +53,7 @@
         "chunk_duration": 2.0,
         "scream_threshold": 0.6,
         "scream_model_path": null,
-        "scream_model_arch": "auto",
+        "scream_model_arch": "resnet18",
         "scream_enable_filtering": true,
         "stt_enabled": true,
         "stt_model_size": "base",
