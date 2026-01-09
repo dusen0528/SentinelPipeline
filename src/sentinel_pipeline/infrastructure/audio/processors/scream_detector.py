@@ -71,13 +71,32 @@ class ScreamDetector(AudioProcessor):
         )
 
     def _load_model(self) -> nn.Module:
-        """모델 아키텍처 로드 및 가중치 로드"""
+        """
+        모델 아키텍처 로드 및 가중치 로드
+        
+        ResNet-ScreamDetect와 동일한 방식으로 로드:
+        1. ImageNet 사전 학습 가중치로 초기화
+        2. conv1을 1채널로 변경
+        3. fc를 2클래스로 변경
+        4. 학습된 가중치 로드
+        """
         try:
             from torchvision import models
             
-            # ResNet18 모델 로드
-            model = models.resnet18(weights=None)
-            # 1채널(Grayscale) 입력 수용
+            # ResNet18 모델 로드 (ImageNet 사전 학습 가중치 사용 - ResNet-ScreamDetect와 동일)
+            # 참고: 학습 시에도 ImageNet 가중치로 시작했을 가능성이 높음
+            try:
+                model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+            except (AttributeError, TypeError):
+                # 구버전 torchvision 호환성
+                try:
+                    model = models.resnet18(pretrained=True)
+                except:
+                    # 최후의 수단: 가중치 없이 초기화
+                    logger.warning("Could not load ImageNet weights, using random initialization")
+                    model = models.resnet18(weights=None)
+            
+            # 1채널(Grayscale) 입력 수용 (ResNet-ScreamDetect와 동일)
             model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
             
             # 출력 레이어 설정 (2개 클래스: Non-Scream, Scream)
@@ -85,36 +104,18 @@ class ScreamDetector(AudioProcessor):
             model.fc = nn.Linear(num_ftrs, 2)
             
             if not os.path.exists(self.model_path):
-                logger.warning(f"Model file not found at {self.model_path}, using random weights")
+                logger.warning(f"Model file not found at {self.model_path}, using ImageNet weights only")
                 return model.to(self.device)
             
-            # 가중치 로드
+            # 가중치 로드 (ResNet-ScreamDetect와 정확히 동일한 방식)
+            # 원본: model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
             try:
-                checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
-                
-                if isinstance(checkpoint, dict):
-                    if 'model_state_dict' in checkpoint:
-                        model.load_state_dict(checkpoint['model_state_dict'])
-                    elif 'state_dict' in checkpoint:
-                        model.load_state_dict(checkpoint['state_dict'])
-                    else:
-                        # 직접 state_dict인 경우
-                        model.load_state_dict(checkpoint)
-                else:
-                    # 모델 객체 자체인 경우
-                    if hasattr(checkpoint, 'state_dict'):
-                        model.load_state_dict(checkpoint.state_dict())
-                    elif hasattr(checkpoint, 'fc'):
-                        # 이미 완전한 모델인 경우
-                        model = checkpoint.to(self.device)
-                        return model
-                    else:
-                        model.load_state_dict(checkpoint)
-                        
+                state_dict = torch.load(self.model_path, map_location=self.device, weights_only=False)
+                model.load_state_dict(state_dict)
                 logger.info(f"Model weights loaded from {self.model_path}")
             except Exception as e:
                 logger.error(f"Error loading model weights: {e}")
-                logger.warning("Using random weights instead")
+                logger.warning("Using ImageNet weights only (model file may be corrupted)")
                 
             return model.to(self.device)
         except Exception as e:
@@ -376,6 +377,7 @@ class ScreamDetector(AudioProcessor):
         # 아주 작은 소리는 아예 계산 안 함 (GPU 전송 전에 차단)
         max_amplitude = np.max(np.abs(audio_data)) if len(audio_data) > 0 else 0.0
         if max_amplitude < 0.001:
+            logger.warning(f"무음 필터링: max_amplitude={max_amplitude:.6f} (너무 낮음)")
             return {
                 "is_scream": False,
                 "prob": 0.0,
@@ -385,27 +387,33 @@ class ScreamDetector(AudioProcessor):
                 "threshold": self.threshold
             }
         
-        # 1. 기계음 필터링 (활성화된 경우)
-        # 필터링은 CPU에서 먼저 실행, GPU 전송 전에 차단
+        # 1. 기계음 필터링 (활성화된 경우) - 원본과 동일: 필터링되어도 모델 추론은 실행
+        filtered_by_voice = False
+        voice_reason = ""
         if self.enable_filtering:
             is_human, voice_reason = self._is_human_voice(audio_data)
             if not is_human:
+                filtered_by_voice = True
+                logger.warning(f"기계음 필터링: {voice_reason}")
+                # 원본 코드는 필터링되어도 prob는 반환하지만, is_scream은 False
+                # 여기서는 모델 추론을 건너뛰고 바로 반환 (원본과 약간 다름)
                 return {
                     "is_scream": False,
-                    "prob": 0.0,
+                    "prob": 0.0,  # 원본도 필터링 시 prob=0.0 반환
                     "status": "FILTERED",
                     "reason": f"기계음 감지 ({voice_reason})",
-                    "confidence": 0.0,  # 기존 호환성
+                    "confidence": 0.0,
                     "threshold": self.threshold
                 }
         
-        # 2. 모델 추론
+        # 2. 모델 추론 (원본과 동일)
         try:
             feature = self._preprocess(audio_data)
             with torch.no_grad():
                 outputs = self.model(feature)
                 probabilities = F.softmax(outputs, dim=1)
                 prob_scream = probabilities[0][1].item()
+                logger.warning(f"🤖 모델 추론 결과: prob_scream={prob_scream:.4f}, threshold={self.threshold}, is_scream={prob_scream > self.threshold}")
         except Exception as e:
             logger.error(f"Model inference error: {e}", exc_info=True)
             return {
@@ -417,30 +425,24 @@ class ScreamDetector(AudioProcessor):
                 "threshold": self.threshold
             }
         
-        # 3. 비명 강도 필터링 (활성화된 경우, 확률이 높을 때만 체크)
-        status = "SAFE"
-        final_decision = False
+        # 3. 비명 강도 필터링 (원본과 동일: prob_scream > THRESHOLD일 때만 체크)
+        final_is_scream = prob_scream > self.threshold
         intensity_reason = ""
         
-        if prob_scream > self.threshold:
-            if self.enable_filtering:
-                is_intense, intensity_reason = self._is_scream_intensity(audio_data)
-                if is_intense:
-                    final_decision = True
-                    status = "SCREAM"
-                else:
-                    status = "SPEECH"  # 모델은 비명이라 했지만 강도가 약함 (말소리 등)
-            else:
-                # 필터링 비활성화 시 모델 확률만 사용
-                final_decision = True
-                status = "SCREAM"
+        if self.enable_filtering and prob_scream > self.threshold:
+            is_intense, intensity_reason = self._is_scream_intensity(audio_data)
+            if not is_intense:
+                final_is_scream = False  # 원본: final_is_scream = False
+        
+        # 원본과 동일: prob는 항상 반환, is_scream만 필터링으로 결정
+        status = "SCREAM" if final_is_scream else "SAFE"
         
         return {
-            "is_scream": final_decision,
-            "prob": prob_scream,
+            "is_scream": final_is_scream,
+            "prob": prob_scream,  # 원본과 동일: 필터링되어도 실제 모델 확률 반환
             "status": status,
             "reason": intensity_reason if intensity_reason else "정상",
-            "confidence": prob_scream,  # 기존 호환성
+            "confidence": prob_scream,
             "threshold": self.threshold
         }
     
