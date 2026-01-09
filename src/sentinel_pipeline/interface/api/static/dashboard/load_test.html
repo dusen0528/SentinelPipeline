@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentinelPipeline - GPU Load Tester</title>
+    <link rel="icon" type="image/png" href="/admin/static/dashboard/favicon.png">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            DEFAULT: '#0f766e',
+                            light: '#14b8a6',
+                            bg: '#f0fdfa',
+                            hover: '#115e59',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+    
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Pipeline animation */
+        .stage-active {
+            animation: pulse-glow 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.4); }
+            50% { box-shadow: 0 0 20px 4px rgba(20, 184, 166, 0.3); }
+        }
+        
+        /* Console log styling */
+        .log-success { color: #059669; }
+        .log-error { color: #dc2626; }
+        .log-warning { color: #d97706; }
+        .log-info { color: #0891b2; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden bg-gray-50">
+    <!-- Header -->
+    <header class="h-16 border-b border-gray-200 bg-white/80 backdrop-blur-md z-40 flex items-center justify-between px-6 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-brand text-white flex items-center justify-center shadow-lg">
+                <span class="material-symbols-outlined">speed</span>
+            </div>
+            <div class="flex flex-col">
+                <h1 class="text-lg font-bold tracking-tight text-gray-900 leading-none">Sentinel<span class="text-brand-light">Pipeline</span></h1>
+                <span class="text-[10px] text-gray-400 font-medium tracking-wider uppercase">GPU Load Tester</span>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <!-- Navigation -->
+            <nav class="hidden sm:flex items-center gap-1 bg-gray-50 rounded-xl p-1 border border-gray-200">
+                <a href="/admin/static/dashboard/index.html" class="px-4 py-2 text-xs font-bold text-gray-600 rounded-lg transition hover:bg-white hover:text-gray-900 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm">dashboard</span>
+                    Dashboard
+                </a>
+                <a href="/static/audio/index.html" class="px-4 py-2 text-xs font-bold text-gray-600 rounded-lg transition hover:bg-white hover:text-gray-900 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm">graphic_eq</span>
+                    Audio
+                </a>
+                <a href="#" class="px-4 py-2 text-xs font-bold text-gray-700 bg-white rounded-lg shadow-sm border border-gray-200 transition flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm">speed</span>
+                    Load Test
+                </a>
+            </nav>
+            <div id="device-badge" class="text-xs text-gray-500 font-mono bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
+                Device: <span id="device-display" class="font-bold text-brand">-</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Left: Controls -->
+        <aside class="w-80 bg-white border-r border-gray-200 flex flex-col shadow-sm z-20">
+            <!-- Test Controls -->
+            <div class="p-4 border-b border-gray-200">
+                <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm text-brand">tune</span>
+                    Test Controls
+                </h2>
+                
+                <div class="space-y-4">
+                    <!-- Streams Slider -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">Simulated Streams</label>
+                            <span id="streamCountVal" class="text-sm font-bold text-brand font-mono">10</span>
+                        </div>
+                        <input type="range" id="streamCount" min="1" max="50" value="10" 
+                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand"
+                            oninput="updateVal('streamCountVal', this.value)">
+                    </div>
+                    
+                    <!-- Whisper Model Selection -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">Whisper Model</label>
+                            <span id="whisperModelVal" class="text-sm font-bold text-brand font-mono">small</span>
+                        </div>
+                        <select id="whisperModel" 
+                            class="w-full h-9 px-3 text-sm bg-white border border-gray-200 rounded-lg focus:ring-brand focus:border-brand"
+                            onchange="document.getElementById('whisperModelVal').innerText = this.value">
+                            <option value="tiny">tiny (빠름, 정확도 낮음)</option>
+                            <option value="base">base (기본)</option>
+                            <option value="small" selected>small (권장)</option>
+                            <option value="medium">medium (느림, 정확도 높음)</option>
+                            <option value="large">large (매우 느림)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Audio Source Info -->
+                    <div class="bg-brand-bg rounded-lg p-3 border border-teal-200">
+                        <div class="flex items-center gap-2">
+                            <span class="text-lg">🎵</span>
+                            <div>
+                                <p class="text-xs font-bold text-brand">실제 오디오 파일 사용</p>
+                                <p class="text-[10px] text-gray-500">sample_data/ 폴더에서 랜덤 선택</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Toggle Options -->
+                    <div class="space-y-2 pt-2">
+                        <label class="flex items-center justify-between cursor-pointer">
+                            <span class="text-xs text-gray-700">GPU Enabled</span>
+                            <input type="checkbox" id="gpuEnabled" checked 
+                                class="w-4 h-4 text-brand border-gray-300 rounded focus:ring-brand">
+                        </label>
+                        <label class="flex items-center justify-between cursor-pointer">
+                            <span class="text-xs text-gray-700">Warmup</span>
+                            <input type="checkbox" id="warmupEnabled" checked 
+                                class="w-4 h-4 text-brand border-gray-300 rounded focus:ring-brand">
+                        </label>
+                        
+                        <label class="flex items-center justify-between cursor-pointer pt-2 border-t border-gray-100">
+                            <span class="text-xs text-gray-700 font-bold">🔄 Continuous Mode</span>
+                            <input type="checkbox" id="continuousMode" 
+                                class="w-4 h-4 text-brand border-gray-300 rounded focus:ring-brand">
+                        </label>
+                        <p class="text-[10px] text-gray-400">실제 스트림처럼 지속적인 부하 테스트</p>
+                    </div>
+                    
+                    <!-- Continuous Mode Options -->
+                    <div id="continuousOptions" class="hidden space-y-3 pt-3 border-t border-gray-100">
+                        <div>
+                            <div class="flex justify-between items-center mb-1.5">
+                                <label class="text-[10px] font-bold text-gray-400 uppercase">Duration (sec)</label>
+                                <span id="durationVal" class="text-sm font-bold text-brand font-mono">30</span>
+                            </div>
+                            <input type="range" id="duration" min="5" max="120" value="30" 
+                                class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand"
+                                oninput="updateVal('durationVal', this.value)">
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-1.5">
+                                <label class="text-[10px] font-bold text-gray-400 uppercase">Interval (sec)</label>
+                                <span id="intervalVal" class="text-sm font-bold text-brand font-mono">1.0</span>
+                            </div>
+                            <input type="range" id="interval" min="0.5" max="3" step="0.5" value="1" 
+                                class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand"
+                                oninput="updateVal('intervalVal', this.value)">
+                        </div>
+                    </div>
+                    
+                    <!-- Run Button -->
+                    <button id="runTestBtn" onclick="runTest()" 
+                        class="w-full px-4 py-3 bg-brand hover:bg-brand-hover text-white text-sm font-bold rounded-lg transition shadow-md flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">play_arrow</span>
+                        RUN TEST
+                    </button>
+                    
+                    <!-- Download CSV Button -->
+                    <button id="downloadCsvBtn" onclick="downloadCSV()" disabled
+                        class="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg transition border border-gray-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span class="material-symbols-outlined text-sm">download</span>
+                        Download CSV
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Scenario Presets (스트림 개수만 설정) -->
+            <div class="p-4 border-b border-gray-200">
+                <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm text-brand">bookmark</span>
+                    Stream Presets
+                </h2>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="setStreams(1)" class="px-3 py-2 text-[10px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition text-center">
+                        1 Stream
+                    </button>
+                    <button onclick="setStreams(5)" class="px-3 py-2 text-[10px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition text-center">
+                        5 Streams
+                    </button>
+                    <button onclick="setStreams(10)" class="px-3 py-2 text-[10px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition text-center">
+                        10 Streams
+                    </button>
+                    <button onclick="setStreams(20)" class="px-3 py-2 text-[10px] font-bold text-yellow-600 bg-yellow-50 hover:bg-yellow-100 rounded-lg border border-yellow-200 transition text-center">
+                        20 Streams
+                    </button>
+                    <button onclick="setStreams(30)" class="px-3 py-2 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg border border-orange-200 transition text-center">
+                        30 Streams
+                    </button>
+                    <button onclick="setStreams(50)" class="px-3 py-2 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition text-center">
+                        🔥 50
+                    </button>
+                </div>
+            </div>
+            
+            <!-- System Status -->
+            <div class="p-4 flex-1">
+                <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm text-brand">memory</span>
+                    System Status
+                </h2>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">CPU Usage</span>
+                        <span id="cpu-usage" class="font-mono font-bold text-gray-700">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Memory</span>
+                        <span id="mem-usage" class="font-mono font-bold text-gray-700">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">GPU Name</span>
+                        <span id="gpu-name" class="font-mono font-bold text-gray-700 text-[10px]">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">VRAM Total</span>
+                        <span id="vram-total" class="font-mono font-bold text-gray-700">-</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center: Metrics & Pipeline -->
+        <main class="flex-1 relative overflow-y-auto p-6">
+            <!-- Metrics Cards -->
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <!-- Avg Latency -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-sm text-emerald-500">timer</span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase">Avg Latency</span>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span id="latencyDisplay" class="text-2xl font-bold text-gray-900 font-mono">0</span>
+                        <span class="text-xs text-gray-400">ms</span>
+                    </div>
+                </div>
+                
+                <!-- Throughput -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-sm text-blue-500">speed</span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase">Throughput</span>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span id="fpsDisplay" class="text-2xl font-bold text-gray-900 font-mono">0</span>
+                        <span class="text-xs text-gray-400">streams/s</span>
+                    </div>
+                </div>
+                
+                <!-- VRAM Usage -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-sm text-orange-500">memory</span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase">VRAM Peak</span>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span id="vramDisplay" class="text-2xl font-bold text-gray-900 font-mono">0</span>
+                        <span class="text-xs text-gray-400">MB</span>
+                    </div>
+                </div>
+                
+                <!-- Total Time -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-sm text-purple-500">schedule</span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase">Total Time</span>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span id="totalTimeDisplay" class="text-2xl font-bold text-gray-900 font-mono">0</span>
+                        <span class="text-xs text-gray-400">sec</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Pipeline Visualization -->
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200 mb-6">
+                <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm text-brand">account_tree</span>
+                    Pipeline Status
+                </h3>
+                <div class="flex items-center justify-center gap-4">
+                    <!-- Stage 1: Input -->
+                    <div id="stage1" class="flex flex-col items-center p-4 bg-gray-50 rounded-xl border border-gray-200 min-w-[140px] transition-all">
+                        <span class="text-2xl mb-2">🎤</span>
+                        <span class="text-[10px] font-bold text-gray-500 uppercase">Input Streams</span>
+                    </div>
+                    
+                    <span class="material-symbols-outlined text-gray-300">arrow_forward</span>
+                    
+                    <!-- Stage 2: Scream Detector -->
+                    <div id="stage2" class="flex flex-col items-center p-4 bg-gray-50 rounded-xl border border-gray-200 min-w-[140px] transition-all">
+                        <span class="text-2xl mb-2">🔍</span>
+                        <span class="text-[10px] font-bold text-gray-500 uppercase">Scream Detector</span>
+                        <span class="text-[9px] text-gray-400 mt-1">ResNet-18</span>
+                    </div>
+                    
+                    <span class="material-symbols-outlined text-gray-300">arrow_forward</span>
+                    
+                    <!-- Stage 3: STT -->
+                    <div id="stage3" class="flex flex-col items-center p-4 bg-gray-50 rounded-xl border border-gray-200 min-w-[140px] transition-all">
+                        <span class="text-2xl mb-2">📝</span>
+                        <span class="text-[10px] font-bold text-gray-500 uppercase">STT (Whisper)</span>
+                        <span class="text-[9px] text-gray-400 mt-1">Conditional</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Charts -->
+            <div class="grid grid-cols-3 gap-4 mb-6">
+                <!-- Latency Chart -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-3">Latency Over Time (ms)</h3>
+                    <div class="h-48">
+                        <canvas id="latencyChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- GPU Memory Chart -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-3">GPU Memory (MB)</h3>
+                    <div class="h-48">
+                        <canvas id="gpuMemoryChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- RAM Chart -->
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-3">RAM Usage (MB)</h3>
+                    <div class="h-48">
+                        <canvas id="ramChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right: Logs -->
+        <aside class="w-96 bg-white border-l border-gray-200 flex flex-col shadow-xl z-20">
+            <!-- Console Header -->
+            <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                    <span class="material-symbols-outlined text-sm text-brand">terminal</span>
+                    Processing Logs
+                </h2>
+                <button onclick="clearConsole()" class="text-[10px] font-bold text-gray-400 hover:text-gray-600 transition">
+                    Clear
+                </button>
+            </div>
+            
+            <!-- Console Content -->
+            <div id="console" class="flex-1 overflow-y-auto p-4 bg-gray-900 font-mono text-xs leading-relaxed">
+                <div class="text-gray-500">
+                    <span class="text-gray-600">[--:--:--]</span>
+                    <span class="text-cyan-400">Ready to test. Configure parameters and click RUN TEST.</span>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        // =====================
+        // Chart Initialization
+        // =====================
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                    ticks: { color: '#9ca3af', font: { family: 'JetBrains Mono', size: 9 } }
+                },
+                y: {
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                    ticks: { color: '#9ca3af', font: { family: 'JetBrains Mono', size: 9 } },
+                    beginAtZero: true
+                }
+            },
+            animation: { duration: 300 }
+        };
+
+        const latencyCtx = document.getElementById('latencyChart').getContext('2d');
+        const latencyChart = new Chart(latencyCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#10b981'
+                }]
+            },
+            options: chartOptions
+        });
+
+        const gpuMemoryCtx = document.getElementById('gpuMemoryChart').getContext('2d');
+        const gpuMemoryChart = new Chart(gpuMemoryCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#f97316'
+                }]
+            },
+            options: chartOptions
+        });
+
+        const ramCtx = document.getElementById('ramChart').getContext('2d');
+        const ramChart = new Chart(ramCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#8b5cf6'
+                }]
+            },
+            options: chartOptions
+        });
+
+        // =====================
+        // State
+        // =====================
+        let lastTestResult = null;
+        let currentEventSource = null;  // SSE 연결
+
+        // =====================
+        // Helper Functions
+        // =====================
+        function updateVal(id, val) {
+            document.getElementById(id).innerText = val;
+        }
+
+        function setStreams(count) {
+            document.getElementById('streamCount').value = count;
+            updateVal('streamCountVal', count);
+            log(`Preset loaded: ${count} streams`, 'info');
+        }
+
+        function log(message, type = 'info') {
+            const consoleEl = document.getElementById('console');
+            const time = new Date().toLocaleTimeString();
+            const colorClass = {
+                'success': 'text-emerald-400',
+                'error': 'text-red-400',
+                'warning': 'text-amber-400',
+                'info': 'text-cyan-400'
+            }[type] || 'text-gray-400';
+            
+            const entry = document.createElement('div');
+            entry.className = 'mb-1';
+            entry.innerHTML = `<span class="text-gray-600">[${time}]</span> <span class="${colorClass}">${message}</span>`;
+            consoleEl.appendChild(entry);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function clearConsole() {
+            const consoleEl = document.getElementById('console');
+            consoleEl.innerHTML = `<div class="text-gray-500"><span class="text-gray-600">[${new Date().toLocaleTimeString()}]</span> <span class="text-cyan-400">Console cleared.</span></div>`;
+        }
+
+        function setStageActive(stageId, active, danger = false) {
+            const stage = document.getElementById(stageId);
+            if (active) {
+                stage.classList.remove('bg-gray-50', 'border-gray-200');
+                if (danger) {
+                    stage.classList.add('bg-red-50', 'border-red-300', 'stage-active');
+                } else {
+                    stage.classList.add('bg-brand-bg', 'border-brand-light', 'stage-active');
+                }
+            } else {
+                stage.classList.remove('bg-brand-bg', 'border-brand-light', 'bg-red-50', 'border-red-300', 'stage-active');
+                stage.classList.add('bg-gray-50', 'border-gray-200');
+            }
+        }
+
+        function updateCharts(latency, gpuMemory, ramMemory) {
+            const time = new Date().toLocaleTimeString();
+            
+            // Latency Chart
+            if (latencyChart.data.labels.length > 15) {
+                latencyChart.data.labels.shift();
+                latencyChart.data.datasets[0].data.shift();
+            }
+            latencyChart.data.labels.push(time);
+            latencyChart.data.datasets[0].data.push(latency);
+            latencyChart.update('none');
+            
+            // GPU Memory Chart
+            if (gpuMemoryChart.data.labels.length > 15) {
+                gpuMemoryChart.data.labels.shift();
+                gpuMemoryChart.data.datasets[0].data.shift();
+            }
+            gpuMemoryChart.data.labels.push(time);
+            gpuMemoryChart.data.datasets[0].data.push(gpuMemory || 0);
+            gpuMemoryChart.update('none');
+            
+            // RAM Chart
+            if (ramChart.data.labels.length > 15) {
+                ramChart.data.labels.shift();
+                ramChart.data.datasets[0].data.shift();
+            }
+            ramChart.data.labels.push(time);
+            ramChart.data.datasets[0].data.push(ramMemory || 0);
+            ramChart.update('none');
+        }
+
+        // =====================
+        // Run Test (SSE 실시간 스트리밍)
+        // =====================
+        function runTest() {
+            // 기존 연결 종료
+            if (currentEventSource) {
+                currentEventSource.close();
+                currentEventSource = null;
+            }
+            
+            const streams = parseInt(document.getElementById('streamCount').value);
+            const gpuEnabled = document.getElementById('gpuEnabled').checked;
+            const warmup = document.getElementById('warmupEnabled').checked;
+            const continuous = document.getElementById('continuousMode').checked;
+            const duration = parseFloat(document.getElementById('duration').value);
+            const interval = parseFloat(document.getElementById('interval').value);
+            const whisperModel = document.getElementById('whisperModel').value;
+            
+            const btn = document.getElementById('runTestBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span> Running...';
+            
+            const mode = continuous ? `Continuous (${duration}s, ${interval}s interval)` : 'Batch';
+            log(`🚀 Starting ${mode}: ${streams} streams, Whisper=${whisperModel.toUpperCase()}`, 'info');
+            
+            // Activate pipeline stages
+            setStageActive('stage1', true);
+            
+            // SSE 연결 URL 생성
+            const params = new URLSearchParams({
+                streams: streams,
+                whisper_model: whisperModel,
+                gpu_enabled: gpuEnabled,
+                warmup: warmup,
+                continuous: continuous,
+                duration: duration,
+                interval: interval
+            });
+            
+            // SSE 연결 시작
+            currentEventSource = new EventSource(`/api/benchmark/stream?${params}`);
+            
+            // 스트림 처리 카운터
+            let processedCount = 0;
+            let tempDetails = [];
+            
+            const categoryEmoji = {
+                'scream': '🔴비명',
+                'emergency_keyword': '🟠긴급',
+                'normal': '🟢일반'
+            };
+            
+            currentEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    switch (data.type) {
+                        case 'status':
+                            // 상태 업데이트 (로딩, 워밍업 등)
+                            log(`📌 ${data.message}`, 'info');
+                            if (data.phase === 'warmup') {
+                                setStageActive('stage2', true);
+                            } else if (data.phase === 'running') {
+                                setStageActive('stage3', true);
+                            }
+                            break;
+                            
+                        case 'stream_result':
+                            // 개별 스트림 처리 결과 (실시간!)
+                            processedCount++;
+                            const status = data.detected ? '🚨 SCREAM' : '✅ SAFE';
+                            const category = data.audio_category || 'normal';
+                            const gt = categoryEmoji[category] || '⚪';
+                            const isScreamGT = category === 'scream';
+                            const isCorrect = data.detected === isScreamGT;
+                            const mark = isCorrect ? '✓' : '✗';
+                            
+                            log(`[${data.stream_id}] ${data.audio_file} | GT:${gt} | ${status} (${data.scream_prob.toFixed(2)}) | ${data.total_latency.toFixed(1)}ms ${mark}`, isCorrect ? 'success' : 'error');
+                            
+                            if (data.transcript) {
+                                log(`  └─ STT: "${data.transcript}"`, 'info');
+                            }
+                            
+                            // 실시간 차트 업데이트 (5개마다)
+                            if (processedCount % 5 === 0 || processedCount <= 3) {
+                                updateCharts(data.total_latency, data.gpu_memory_mb, data.system_memory_mb);
+                            }
+                            
+                            // 상세 결과 저장
+                            tempDetails.push(data);
+                            break;
+                            
+                        case 'progress':
+                            // 연속 테스트 진행률
+                            const rateMsg = data.processing_rate !== undefined && data.processing_rate > 0 
+                                ? ` | Rate: ${data.processing_rate.toFixed(1)} chunks/s` : '';
+                            const workersMsg = data.active_workers !== undefined 
+                                ? ` | Active: ${data.active_workers}/${data.total_workers} workers` : '';
+                            const noteMsg = data.note ? ` | ${data.note}` : '';
+                            log(`⏱️ Progress: ${data.percent.toFixed(0)}% | Processed: ${data.processed} chunks${rateMsg}${workersMsg}${noteMsg}`, 'info');
+                            break;
+                            
+                        case 'complete':
+                            // 최종 결과
+                            lastTestResult = data;
+                            document.getElementById('downloadCsvBtn').disabled = false;
+                            
+                            // Update metrics
+                            document.getElementById('latencyDisplay').innerText = data.avg_latency_ms.toFixed(1);
+                            document.getElementById('fpsDisplay').innerText = data.fps.toFixed(1);
+                            document.getElementById('vramDisplay').innerText = data.gpu_memory_peak_mb.toFixed(0);
+                            document.getElementById('totalTimeDisplay').innerText = data.total_time.toFixed(2);
+                            document.getElementById('device-display').innerText = data.device.toUpperCase();
+                            
+                            // 최종 결과 차트 업데이트 (GPU peak, RAM은 마지막 값 사용)
+                            const lastRam = data.details && data.details.length > 0 
+                                ? data.details[data.details.length - 1].system_memory_mb || 0 
+                                : 0;
+                            updateCharts(data.avg_latency_ms, data.gpu_memory_peak_mb, lastRam);
+                            
+                            log(``, 'info');
+                            log(`═══════════════════════════════════`, 'success');
+                            log(`✅ TEST COMPLETE!`, 'success');
+                            log(`═══════════════════════════════════`, 'success');
+                            if (data.continuous) {
+                                log(`  Mode: Continuous (${data.duration}s)`, 'info');
+                                log(`  Total Chunks: ${data.total_processed}`, 'info');
+                            }
+                            log(`  Avg Latency: ${data.avg_latency_ms.toFixed(1)}ms`, 'success');
+                            log(`  Max Latency: ${data.max_latency_ms.toFixed(1)}ms`, 'info');
+                            log(`  Throughput: ${data.fps.toFixed(1)} ${data.continuous ? 'chunks' : 'streams'}/sec`, 'info');
+                            log(`  GPU Memory: ${data.gpu_memory_mb.toFixed(0)}MB (peak: ${data.gpu_memory_peak_mb.toFixed(0)}MB)`, 'info');
+                            log(`  CPU Usage: ${data.cpu_percent.toFixed(1)}%`, 'info');
+                            log(`  🔴 Scream: ${data.scream_count} | 📝 STT: ${data.stt_count}`, 'info');
+                            
+                            // Accuracy 계산
+                            if (data.details && data.details.length > 0) {
+                                let correctCount = 0;
+                                for (const d of data.details) {
+                                    const cat = d.audio_category || 'normal';
+                                    const isScreamGT = cat === 'scream';
+                                    if (d.detected === isScreamGT) correctCount++;
+                                }
+                                const accuracy = (correctCount / data.details.length * 100).toFixed(1);
+                                log(`  📊 Accuracy: ${correctCount}/${data.details.length} (${accuracy}%)`, correctCount === data.details.length ? 'success' : 'warning');
+                            }
+                            
+                            // Performance analysis
+                            if (data.avg_latency_ms < 100) {
+                                log(`⚡ Performance: EXCELLENT`, 'success');
+                            } else if (data.avg_latency_ms < 500) {
+                                log(`👍 Performance: GOOD`, 'success');
+                            } else if (data.avg_latency_ms < 1000) {
+                                log(`⚠️ Performance: WARNING`, 'warning');
+                            } else {
+                                log(`🔥 Performance: CRITICAL`, 'error');
+                            }
+                            
+                            finishTest();
+                            break;
+                            
+                        case 'error':
+                            log(`❌ Error: ${data.message}`, 'error');
+                            finishTest();
+                            break;
+                    }
+                } catch (e) {
+                    console.error('SSE parse error:', e, event.data);
+                }
+            };
+            
+            currentEventSource.onerror = function(event) {
+                log(`❌ Connection error`, 'error');
+                console.error('SSE error:', event);
+                finishTest();
+            };
+            
+            currentEventSource.addEventListener('close', function() {
+                finishTest();
+            });
+            
+            function finishTest() {
+                if (currentEventSource) {
+                    currentEventSource.close();
+                    currentEventSource = null;
+                }
+                
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined text-sm">play_arrow</span> RUN TEST';
+                
+                setTimeout(() => {
+                    setStageActive('stage1', false);
+                    setStageActive('stage2', false);
+                    setStageActive('stage3', false);
+                }, 1500);
+            }
+        }
+
+        // =====================
+        // CSV Download
+        // =====================
+        function downloadCSV() {
+            if (!lastTestResult) {
+                log('No test result to download', 'error');
+                return;
+            }
+
+            const data = lastTestResult;
+            const timestamp = data.timestamp || new Date().toISOString().replace(/[:.]/g, '-');
+            
+            // 헤더 (시계열 리소스 포함)
+            let csv = 'stream_id,chunk_id,timestamp,audio_file,audio_category,detected,scream_prob,step1_latency_ms,step2_latency_ms,total_latency_ms,gpu_memory_mb,cpu_percent,transcript\n';
+            
+            // 데이터 행만
+            for (const d of data.details) {
+                const transcript = (d.transcript || '').replace(/"/g, '""');
+                const chunkId = d.chunk_id !== undefined ? d.chunk_id : 0;
+                const ts = d.timestamp || '';
+                const category = d.audio_category || 'normal';
+                const gpuMem = d.gpu_memory_mb !== undefined ? d.gpu_memory_mb.toFixed(2) : '0';
+                const cpuPct = d.cpu_percent !== undefined ? d.cpu_percent.toFixed(1) : '0';
+                csv += `${d.stream_id},${chunkId},${ts},"${d.audio_file || ''}",${category},${d.detected},${d.scream_prob.toFixed(3)},${d.step1_latency.toFixed(2)},${d.step2_latency.toFixed(2)},${d.total_latency.toFixed(2)},${gpuMem},${cpuPct},"${transcript}"\n`;
+            }
+            
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `benchmark_${timestamp.replace(/[: ]/g, '_')}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            log(`📄 CSV downloaded: ${link.download}`, 'success');
+        }
+
+        // =====================
+        // System Status
+        // =====================
+        async function loadSystemStatus() {
+            try {
+                const response = await fetch('/api/benchmark/status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('device-display').innerText = data.device.toUpperCase();
+                    document.getElementById('cpu-usage').innerText = data.cpu_percent.toFixed(1) + '%';
+                    document.getElementById('mem-usage').innerText = data.memory_percent.toFixed(1) + '%';
+                    
+                    if (data.gpu_name) {
+                        document.getElementById('gpu-name').innerText = data.gpu_name.substring(0, 20) + (data.gpu_name.length > 20 ? '...' : '');
+                        document.getElementById('vram-total').innerText = (data.gpu_memory_total_mb || 0).toFixed(0) + ' MB';
+                        log(`🎮 GPU: ${data.gpu_name}`, 'success');
+                    } else {
+                        document.getElementById('gpu-name').innerText = 'N/A';
+                        document.getElementById('vram-total').innerText = 'N/A';
+                        log(`⚠️ No GPU detected. Running on CPU.`, 'warning');
+                    }
+                }
+            } catch (error) {
+                log(`Failed to get system status: ${error.message}`, 'error');
+            }
+        }
+
+        // =====================
+        // Initialize
+        // =====================
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSystemStatus();
+            
+            // Continuous mode toggle
+            const continuousToggle = document.getElementById('continuousMode');
+            const continuousOptions = document.getElementById('continuousOptions');
+            
+            continuousToggle.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    continuousOptions.classList.remove('hidden');
+                } else {
+                    continuousOptions.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

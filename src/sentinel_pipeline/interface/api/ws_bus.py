@@ -61,3 +61,7 @@ async def publish_module_stats(payload: Dict[str, Any]) -> None:
 async def publish_event(payload: Dict[str, Any]) -> None:
     await broadcast({"type": "event", **payload})
 
+
+async def publish_benchmark_log(payload: Dict[str, Any]) -> None:
+    """벤치마크 테스트 실시간 로그 브로드캐스트"""
+    await broadcast({"type": "benchmark_log", **payload})
