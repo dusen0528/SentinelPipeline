@@ -237,18 +237,34 @@ class LoadTestSimulator:
             logger.info(f"ScreamDetector 로드 완료: {self.device}")
             
         if self._stt_model is None:
-            logger.info(f"Whisper STT 모델 로딩 중 ({self.whisper_model_name})...")
+            # large 모델 선택 시 large-v3-turbo 사용 (ResNet 프로젝트와 동일)
+            model_name = self.whisper_model_name
+            if model_name == "large":
+                model_name = "large-v3-turbo"
+            
+            logger.info(f"Whisper STT 모델 로딩 중 ({model_name})...")
             from faster_whisper import WhisperModel
             
             # GPU 사용 시 float16, CPU는 int8
             compute_type = "float16" if self.device == "cuda" else "int8"
             
             self._stt_model = WhisperModel(
-                self.whisper_model_name,
+                model_name,
                 device=self.device,
                 compute_type=compute_type,
             )
-            logger.info(f"Whisper 로드 완료: {self.whisper_model_name} on {self.device}")
+            
+            # 모델이 실제로 GPU에 로드되었는지 확인
+            if self.device == "cuda":
+                import torch
+                # 더 상세한 GPU 메모리 정보 로깅
+                allocated_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+                reserved_mb = torch.cuda.memory_reserved() / (1024 * 1024)
+                logger.info(f"   GPU Memory Allocated: {allocated_mb:.2f} MB, Reserved: {reserved_mb:.2f} MB")
+                if allocated_mb == 0:
+                    logger.warning("   GPU에 메모리가 할당되지 않았습니다. CPU 모드로 실행 중일 수 있습니다.")
+            
+            logger.info(f"Whisper 로드 완료: {model_name} on {self.device}")
     
     def _load_sample_audio_files(self):
         """sample_data 폴더에서 실제 오디오 파일들을 로드하고 카테고리별 분류"""
