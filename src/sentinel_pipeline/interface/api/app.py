@@ -21,6 +21,7 @@ from sentinel_pipeline.common.logging import get_logger
 from sentinel_pipeline.interface.api.routes import (
     admin_ws,
     admin_debug,
+    benchmark,
     config,
     health,
     metrics,
@@ -111,6 +112,7 @@ def create_app(allowed_origins: Iterable[str] | None = None) -> FastAPI:
     app.include_router(admin_debug.router)
     app.include_router(dashboard.router)
     app.include_router(audio.router)
+    app.include_router(benchmark.router)
 
     # 정적 파일 서빙 (Clean Architecture Frontend)
     interface_dir = Path(__file__).resolve().parent.parent

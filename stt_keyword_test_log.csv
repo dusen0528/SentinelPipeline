@@ -1,0 +1,346 @@
+timestamp,model,intended,stt_result,stt_time,stt_level,stt_score,is_dangerous,detect_path,keyword,confidence,is_emergency,correct
+2026-01-07 15:29:16,small,살려주세요,살려주세요,1.08,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:22,small,살려주세요,살려주세요,1.03,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:28,small,살려주세요,살려주세요,1.04,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:34,small,살려주세요,살려주세요,1.05,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:39,small,살려주세요,살려주세요,1.01,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:45,small,살려줘,살려줘,1.04,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:49,small,살려줘,살려줘,1.05,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:29:55,small,살려줘,이 자리에,2.89,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:30:05,small,살려줘,살려줘,1.08,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:12,small,살려줘,살려줘,1.02,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:20,small,사람살려,사람 살려,1.04,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:27,small,사람살려,사람 살려.,1.06,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:34,small,사람살려,사람 살려,1.02,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:39,small,사람살려,사람 살려,1.02,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:45,small,사람살려,사람 살려,1.01,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:53,small,구해줘,구해줘,1.02,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:30:57,small,구해줘,구해줘,1.02,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:02,small,구해줘,구해줘,1.04,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:07,small,구해줘,구혜종,3.01,wrong,0.33,True,medium,구조요청,0.77,True,True
+2026-01-07 15:31:16,small,구해줘,구해줘,1.03,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:24,small,도와줘,도와줘,1.03,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:29,small,도와줘,도와줘,1.07,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:36,small,도와줘,도와줘,1.05,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:46,small,도와줘,도와줘,1.02,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:31:54,small,도와줘,좋아 좋아,1.06,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:32:02,small,도와주세요,도와주세요,1.03,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:32:08,small,도와주세요,도와주세요,1.06,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:32:13,small,도와주세요,도와주세요,1.03,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:32:19,small,도와주세요,또 와주세요,1.05,similar,0.80,True,medium,구조요청,1.00,True,True
+2026-01-07 15:32:26,small,도와주세요,도와주세요,1.04,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:32:35,small,SOS,s.o.s,1.05,normalized,0.95,False,none,,0.00,False,True
+2026-01-07 15:32:41,small,SOS,스포이스,1.05,wrong,0.00,True,medium,구조요청,0.67,False,False
+2026-01-07 15:32:47,small,SOS,s.o.s,1.05,normalized,0.95,False,none,,0.00,False,True
+2026-01-07 15:32:54,small,SOS,쏘이쓰,4.94,wrong,0.00,False,none,,0.00,False,True
+2026-01-07 15:33:04,small,SOS,S.O.S.S,1.06,similar,0.86,False,none,,0.00,False,True
+2026-01-07 15:33:15,small,헬프,감사합니다,2.63,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:33:23,small,헬프,헬프,1.04,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:33:28,small,헬프,헬프,1.03,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:33:33,small,헬프,감사합니다.,2.59,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:33:41,small,헬프,헬프,1.01,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:33:57,small,불이야,불이야,1.05,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 15:34:04,small,불이야,부디야,1.03,wrong,0.33,True,medium,화재,0.77,True,True
+2026-01-07 15:34:11,small,불이야,부리야,1.04,wrong,0.33,True,medium,화재,0.92,True,True
+2026-01-07 15:34:17,small,불이야,불이야,2.03,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 15:34:23,small,불이야,우리야,1.05,wrong,0.33,True,medium,화재,0.77,True,True
+2026-01-07 15:34:38,small,불났다,불렀다,1.06,different,0.67,True,medium,화재,0.75,True,True
+2026-01-07 15:34:45,small,불났다,불 났다,1.07,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:34:50,small,불났다,불렀다,1.06,different,0.67,True,medium,화재,0.75,True,True
+2026-01-07 15:34:57,small,불났다,불 났다,1.08,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:35:02,small,불났다,불이 났다,1.07,similar,0.86,True,medium,화재,0.89,True,True
+2026-01-07 15:35:08,small,화재,화제,1.03,different,0.50,True,medium,화재,1.00,True,True
+2026-01-07 15:35:15,small,화재,화제,1.05,different,0.50,True,medium,화재,1.00,True,True
+2026-01-07 15:35:21,small,화재,화재,1.04,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 15:35:25,small,화재,화제,2.60,different,0.50,True,medium,화재,1.00,True,True
+2026-01-07 15:35:36,small,화재,화제,1.04,different,0.50,True,medium,화재,1.00,True,True
+2026-01-07 15:35:43,small,연기발생,연기 발생,1.05,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:35:48,small,연기발생,연기발생,1.04,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 15:35:53,small,연기발생,연기발생,1.04,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 15:35:59,small,연기발생,연기 말씀,1.04,different,0.50,True,medium,화재,0.73,True,True
+2026-01-07 15:36:06,small,연기발생,연기 발생,1.05,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:36:14,small,타는냄새,파는 냄새,1.03,different,0.75,True,medium,화재,0.90,True,True
+2026-01-07 15:36:20,small,타는냄새,타는 인쇄,1.05,different,0.50,True,medium,화재,0.70,True,True
+2026-01-07 15:36:27,small,타는냄새,타는 냄새,1.03,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:36:32,small,타는냄새,타는 냄새,1.02,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:36:38,small,타는냄새,타는 냄새,1.05,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:36:44,small,일일구,띠 띠 띠 띠,1.14,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:36:55,small,일일구,잔뜩 잔뜩,2.86,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:37:03,small,일일구,"1, 2, 3",4.65,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:37:13,small,일일구,"1,2,3",1.05,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:37:19,small,일일구,"1, 2, 3",1.06,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:37:25,small,긴급,킹그룹,1.07,wrong,0.00,True,medium,응급의료,0.71,True,True
+2026-01-07 15:37:32,small,긴급,긴급,1.05,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 15:37:37,small,긴급,킹크랩,1.08,wrong,0.00,True,medium,응급의료,0.71,True,True
+2026-01-07 15:37:43,small,긴급,긴급,1.06,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 15:37:48,small,긴급,긴..,2.71,different,0.67,True,medium,응급의료,0.67,True,True
+2026-01-07 15:37:59,small,구급차,부급장,1.02,wrong,0.33,True,medium,응급의료,0.80,True,True
+2026-01-07 15:38:05,small,구급차,구급차,1.04,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 15:38:10,small,구급차,구급차,1.04,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 15:38:15,small,구급차,고급차,1.05,different,0.67,True,medium,응급의료,0.86,True,True
+2026-01-07 15:38:21,small,구급차,구급차,1.01,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 15:38:27,small,앰뷸런스,앰플란스,1.08,different,0.50,True,medium,응급의료,0.82,True,True
+2026-01-07 15:38:34,small,앰뷸런스,엠투리 넌스웨어,3.28,wrong,0.18,True,medium,응급의료,0.67,True,True
+2026-01-07 15:38:44,small,앰뷸런스,앤들런스,3.50,different,0.50,True,medium,응급의료,0.73,True,True
+2026-01-07 15:38:54,small,앰뷸런스,엠블런스,2.97,different,0.50,True,medium,응급의료,0.91,True,True
+2026-01-07 15:39:02,small,앰뷸런스,앵귤란색,1.06,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:39:09,small,신고,신고,1.02,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:39:13,small,신고,신고,1.02,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:39:19,small,신고,신공,2.53,different,0.50,True,medium,신고,0.91,True,True
+2026-01-07 15:39:27,small,신고,신고,1.02,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:39:33,small,신고,신무즈,1.10,wrong,0.40,False,none,,0.00,True,False
+2026-01-07 15:39:50,small,신고해주세요,신고해주세요,1.04,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:39:55,small,신고해주세요,신고해주세요,1.04,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:01,small,신고해주세요,신고해주세요,1.08,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:06,small,신고해주세요,신고해주세요,1.07,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:12,small,신고해주세요,신고해주세요,1.07,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:17,small,신고할게요,신고할게요,1.06,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:22,small,신고할게요,신고할게요,1.04,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:28,small,신고할게요,신고할게요,1.06,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:34,small,신고할게요,신고할게요,1.04,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:39,small,신고할게요,신고할게요,1.07,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:40:47,small,응급실,이거 치우는거지?,2.81,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:40:55,small,응급실,In the queue,2.77,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:41:05,small,응급실,흔들끼리,1.07,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:41:12,small,응급실,응급힐,2.78,different,0.67,True,medium,응급의료,0.89,True,True
+2026-01-07 15:41:20,small,응급실,응급실,1.01,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 15:41:28,small,일일이,인리,2.52,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:41:38,small,일일이,"인, 인, 인, 인",1.05,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:41:50,small,일일이,"1,2,3",5.01,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:42:01,small,일일이,"N, N, D",1.04,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:42:10,small,일일이,응 응 응,1.04,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:42:19,small,경찰,경찰,1.01,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:42:25,small,경찰,총 잘,1.06,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:42:32,small,경찰,경찰,1.03,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:42:37,small,경찰,경찰,1.01,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:42:48,small,경찰,경찰,1.02,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 15:45:27,base,살려주세요,살려주세요,0.39,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:45:32,base,살려주세요,"사장님, 주세요.",0.93,different,0.55,False,none,,0.00,True,False
+2026-01-07 15:45:40,base,살려주세요,살려보세요,0.33,morpheme,1.00,True,medium,구조요청,0.82,True,True
+2026-01-07 15:45:46,base,살려주세요,살려주세요,0.33,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:45:51,base,살려주세요,살려주세요,0.33,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:01,base,살려줘,살려도,0.34,morpheme,1.00,True,medium,구조요청,0.71,True,True
+2026-01-07 15:46:08,base,살려줘,살려줘,0.37,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:12,base,살려줘,살려주세요,0.34,morpheme,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:18,base,살려줘,살려줘봐,0.34,morpheme,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:24,base,살려줘,살려줍니다,0.34,morpheme,1.00,True,medium,구조요청,1.00,True,True
+2026-01-07 15:46:30,base,사람살려,사랑 살려,0.34,different,0.75,True,medium,구조요청,0.90,True,True
+2026-01-07 15:46:36,base,사람살려,사람 살려,0.34,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:41,base,사람살려,사람이 됐냐?,0.34,wrong,0.44,False,none,,0.00,True,False
+2026-01-07 15:46:47,base,사람살려,사람 살려,0.33,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:52,base,사람살려,사람 살려,0.35,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:46:57,base,구해줘,구해줘.,0.93,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:02,base,구해줘,구해줘,0.38,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:07,base,구해줘,구해줘.,0.37,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:12,base,구해줘,구해줘.,0.34,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:16,base,구해줘,구해줘,0.34,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:21,base,도와줘,도와주세요,0.38,morpheme,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:27,base,도와줘,또 한 번,0.91,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:47:33,base,도와줘,도와줘,0.37,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:38,base,도와줘,도와줘,0.34,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:43,base,도와줘,도와줘요,0.33,morpheme,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:49,base,도와주세요,도와주세요,0.34,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:47:54,base,도와주세요,투하하세요,1.56,wrong,0.40,False,none,,0.00,True,False
+2026-01-07 15:48:01,base,도와주세요,도와주세요,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:48:06,base,도와주세요,도와주세요.,0.35,normalized,0.95,True,fast,구조요청,1.00,True,True
+2026-01-07 15:48:11,base,도와주세요,도와주세요,0.91,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-07 15:48:18,base,에스오에스,SOS,0.34,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:48:33,base,에스오에스,수고했어.,1.55,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:48:43,base,에스오에스,애쥬 애쥬,1.60,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:48:53,base,에스오에스,에스웨스,0.86,different,0.67,True,medium,구조요청,0.78,True,True
+2026-01-07 15:49:03,base,에스오에스,수고하셨습니다.,0.92,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 15:49:12,base,헬프,에이프,0.88,wrong,0.40,True,medium,구조요청,0.71,True,True
+2026-01-07 15:49:18,base,헬프,하여튼,0.88,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:49:24,base,헬프,액션,0.87,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:49:31,base,헬프,감사합니다.,0.89,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:49:51,base,헬프,히트,0.88,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:49:56,base,불이야,불이 안 돼.,0.34,partial_morpheme,0.50,True,medium,화재,0.82,True,True
+2026-01-07 15:50:09,base,불이야,돌려,0.36,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:50:15,base,불이야,둘이요.,0.35,wrong,0.33,True,medium,화재,0.71,True,True
+2026-01-07 15:50:28,base,불이야,불이 형,0.33,different,0.67,True,medium,화재,0.80,True,True
+2026-01-07 15:50:34,base,불이야,흔들어,0.92,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:50:44,base,불이야,훈련,0.91,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:51:30,base,불났다,불렀다.,0.34,different,0.67,True,medium,화재,0.75,True,True
+2026-01-07 15:51:37,base,불났다,브이로그,0.70,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 15:51:43,base,불났다,불 났다.,0.34,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 15:52:15,base,불났다,불랬다,0.93,different,0.67,True,medium,화재,0.75,True,True
+2026-01-07 15:52:27,base,불났다,풀렸다,0.93,wrong,0.33,True,medium,화재,0.75,True,True
+2026-01-07 16:07:29,base,화재,화재,0.34,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 16:07:34,base,화재,화재,0.86,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-07 16:07:39,base,화재,하세요.,0.33,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:07:45,base,화재,화재.,0.87,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 16:07:50,base,화재,감사합니다.,0.97,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:07:58,base,연기발생,엉디 발색.,1.00,wrong,0.25,True,medium,화재,0.73,True,True
+2026-01-07 16:08:05,base,연기발생,경기 발생,0.38,different,0.75,True,medium,화재,0.82,True,True
+2026-01-07 16:08:11,base,연기발생,너무 깨있어요,1.06,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:08:18,base,연기발생,연기 발성,0.36,different,0.75,True,medium,화재,0.91,True,True
+2026-01-07 16:08:24,base,연기발생,"그럼, 이빨 좀.",1.75,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:08:33,base,타느냄새,판매 센스,0.95,wrong,0.00,False,none,,0.00,False,True
+2026-01-07 16:08:40,base,타는냄새,파는 엔세.,0.35,wrong,0.25,True,medium,화재,0.70,True,True
+2026-01-07 16:08:46,base,타는냄새,탄함냄새,1.03,different,0.50,True,medium,화재,0.76,True,True
+2026-01-07 16:08:52,base,타는냄새,타는 냄새.,0.34,normalized,0.95,True,fast,화재,1.00,True,True
+2026-01-07 16:08:57,base,타는냄새,"네, 네, 네.",0.99,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:09:03,base,일일구,네.,1.37,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:09:10,base,일일구,리듬 리듬 리듬,0.36,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:09:16,base,일일구,케이크,0.95,wrong,0.00,True,medium,응급의료,0.67,True,True
+2026-01-07 16:09:22,base,일일구,이리웠네,0.96,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:09:29,base,일일구,이유이콜,0.92,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:09:38,base,긴급,긴급,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-07 16:09:43,base,긴급,KING,0.33,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:09:48,base,긴급,긴급.,0.34,normalized,0.95,True,fast,응급의료,1.00,True,True
+2026-01-07 16:09:54,base,긴급,킹글,0.35,wrong,0.00,True,medium,응급의료,0.67,True,True
+2026-01-07 16:10:04,base,구급차,고급자,0.38,wrong,0.33,True,medium,응급의료,0.86,True,True
+2026-01-07 16:10:09,base,구급차,끝까지.,0.84,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:10:15,base,구급차,구급자,0.35,different,0.67,True,medium,응급의료,1.00,True,True
+2026-01-07 16:10:20,base,구급차,구구차,0.89,different,0.67,True,medium,응급의료,0.77,True,True
+2026-01-07 16:10:27,base,구급차,고급자,0.92,wrong,0.33,True,medium,응급의료,0.86,True,True
+2026-01-07 16:10:34,base,앰뷸런스,엠리밀런스,1.10,wrong,0.44,True,medium,응급의료,0.75,True,True
+2026-01-07 16:10:41,base,앰뷸런스,엔비울런스,1.00,wrong,0.44,True,medium,응급의료,0.83,True,True
+2026-01-07 16:10:48,base,앰뷸런스,잠들났습니다.,1.05,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:10:55,base,앰뷸런스,앰길런스,0.34,different,0.75,True,medium,응급의료,0.82,True,True
+2026-01-07 16:11:01,base,앰뷸런스,햄브리오 스페인,1.02,wrong,0.18,False,none,,0.00,True,False
+2026-01-07 16:11:08,base,신고,신경쓰,0.90,wrong,0.40,False,none,,0.00,True,False
+2026-01-07 16:11:13,base,신고,신고.,0.34,normalized,0.95,True,fast,신고,1.00,True,True
+2026-01-07 16:11:17,base,신고,신고.,0.34,normalized,0.95,True,fast,신고,1.00,True,True
+2026-01-07 16:11:21,base,신고,신고,0.33,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 16:11:25,base,신고,신고,0.33,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 16:11:29,base,신고해주세요,신고해 주신다.,0.37,morpheme,1.00,True,fast,신고,1.00,True,True
+2026-01-07 16:11:35,base,신고해주세요,신고해주세요,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 16:11:40,base,신고해주세요,신고해주세요,0.38,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-07 16:11:45,base,신고해주세요,응원해주세요.,1.57,different,0.67,False,none,,0.00,True,False
+2026-01-07 16:11:52,base,신고해주세요,킹구해주세요,0.35,different,0.67,True,medium,구조요청,0.80,True,True
+2026-01-07 16:11:59,base,신고할게요,신고할게요.,0.35,normalized,0.95,True,fast,신고,1.00,True,True
+2026-01-07 16:12:08,base,신고할게요,신고할게요.,0.34,normalized,0.95,True,fast,신고,1.00,True,True
+2026-01-07 16:12:13,base,신고할게요,신고할게요.,0.35,normalized,0.95,True,fast,신고,1.00,True,True
+2026-01-07 16:12:23,base,신고할게요,신고할게요.,0.36,normalized,0.95,True,fast,신고,1.00,True,True
+2026-01-07 16:12:28,base,신고할게요,심각이야,0.95,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:12:38,base,응급실,면을 켜.,0.92,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:12:44,base,응급실,엉그치,0.93,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:12:51,base,응급실,엉득시.,0.93,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:12:57,base,응급실,수고하셨습니다.,0.99,wrong,0.00,True,medium,신고,0.67,True,True
+2026-01-07 16:13:05,base,응급실,응답시고요.,0.99,wrong,0.25,False,none,,0.00,True,False
+2026-01-07 16:13:15,base,일일이,음음음음,0.94,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:13:21,base,일일이,일요일,2.94,different,0.67,True,medium,응급의료,0.75,True,True
+2026-01-07 16:13:30,base,일일이,이리 이리,2.09,wrong,0.29,True,medium,신고,0.88,True,True
+2026-01-07 16:13:37,base,일일이,비빔빔빔빔빔빔빔,0.39,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:13:45,base,일일이,빌리리리리리리리리리리리리리리,0.38,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:13:54,base,경찰,통참,0.86,wrong,0.00,True,medium,구조요청,0.67,True,True
+2026-01-07 16:14:00,base,경찰,중창,0.34,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:14:04,base,경찰,감사합니다,0.33,wrong,0.00,False,none,,0.00,True,False
+2026-01-07 16:14:09,base,경찰,통참.,0.86,wrong,0.00,True,medium,구조요청,0.67,True,True
+2026-01-07 16:14:15,base,경찰,천천히,0.89,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:38:06,large-v3-turbo,살려주세요,살려주세요,0.56,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:39:38,large-v3-turbo,살려주세요,사서 주세요,0.38,different,0.60,True,medium,구조요청,0.86,True,True
+2026-01-08 01:40:02,large-v3-turbo,살려주세요,살려주세요,0.37,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:40:34,large-v3-turbo,살려주세요,살려주세요,0.37,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:40:42,large-v3-turbo,살려주세요,살쪄주세요,0.40,similar,0.80,True,medium,구조요청,0.91,True,True
+2026-01-08 01:41:03,large-v3-turbo,살려줘,살려줘,0.53,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:41:11,large-v3-turbo,살려줘,살려줘,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:41:19,large-v3-turbo,살려줘,탈정수요,0.57,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:41:27,large-v3-turbo,살려줘,탈려줘,0.36,different,0.67,True,medium,구조요청,0.86,True,True
+2026-01-08 01:41:34,large-v3-turbo,살려줘,살려줘,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:41:59,large-v3-turbo,사람살려,사람 살려,0.37,normalized,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:42:09,large-v3-turbo,사람살려,사람 살려,0.35,normalized,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:42:16,large-v3-turbo,사람살려,사람 살려,0.35,normalized,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:42:22,large-v3-turbo,사람살려,사람 살려,0.34,normalized,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:42:27,large-v3-turbo,사람살려,사람 살려,0.39,normalized,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:42:43,large-v3-turbo,구해줘,구애죠,0.56,wrong,0.33,True,medium,구조요청,0.67,True,True
+2026-01-08 01:42:52,large-v3-turbo,구해줘,구애조원,0.34,wrong,0.29,True,medium,구조요청,0.67,True,True
+2026-01-08 01:42:59,large-v3-turbo,구해줘,구해줘,0.36,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:43:07,large-v3-turbo,구해줘,구애줘,0.35,different,0.67,True,medium,구조요청,0.83,True,True
+2026-01-08 01:43:18,large-v3-turbo,구해줘,구해줘,0.36,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:43:32,large-v3-turbo,도와줘,도와줘,0.36,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:43:39,large-v3-turbo,도와줘,도와줘요,0.35,similar,0.86,True,fast,구조요청,1.00,True,True
+2026-01-08 01:43:46,large-v3-turbo,도와줘,도와줘,0.43,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:43:54,large-v3-turbo,도와줘,좋아하세요,0.35,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:44:02,large-v3-turbo,도와줘,도와줘,0.40,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:44:21,large-v3-turbo,도와주세요,도와주세요,0.36,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:44:28,large-v3-turbo,도와주세요,도와주세요,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:44:37,large-v3-turbo,도와주세요,도와주세요,0.34,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:44:46,large-v3-turbo,도와주세요,도와주세요,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:44:52,large-v3-turbo,도와주세요,도와주세요,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:45:09,large-v3-turbo,에스오에스,SOS,0.36,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:46:40,large-v3-turbo,에스오에스,에스오 에스오,0.56,similar,0.91,True,fast,구조요청,1.00,True,True
+2026-01-08 01:46:49,large-v3-turbo,에스오에스,SOS,0.35,wrong,0.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:46:56,large-v3-turbo,에스오에스,SOS,0.35,wrong,0.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:47:03,large-v3-turbo,에스오에스,SOS,0.35,wrong,0.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:47:25,large-v3-turbo,헬프,헬클,0.36,different,0.50,True,medium,구조요청,0.73,True,True
+2026-01-08 01:47:33,large-v3-turbo,헬프,헬프,0.36,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:47:39,large-v3-turbo,헬프,헬프,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:47:45,large-v3-turbo,헬프,헬프,0.36,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:47:50,large-v3-turbo,헬프,헬프,0.35,exact,1.00,True,fast,구조요청,1.00,True,True
+2026-01-08 01:48:08,large-v3-turbo,불이야,부리야,0.36,wrong,0.33,True,medium,화재,0.92,True,True
+2026-01-08 01:48:15,large-v3-turbo,불이야,부리야,0.35,wrong,0.33,True,medium,화재,0.92,True,True
+2026-01-08 01:48:24,large-v3-turbo,불이야,구리야,0.35,wrong,0.33,True,medium,화재,0.77,True,True
+2026-01-08 01:48:33,large-v3-turbo,불이야,불리야,0.35,different,0.67,True,medium,화재,0.86,True,True
+2026-01-08 01:48:40,large-v3-turbo,불이야,불이야,0.36,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:48:55,large-v3-turbo,불났다,불나빠,0.36,wrong,0.33,True,medium,화재,0.80,True,True
+2026-01-08 01:49:02,large-v3-turbo,불났다,불 났다,0.36,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:49:07,large-v3-turbo,불났다,불 났다,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:49:13,large-v3-turbo,불났다,불 났다.,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:49:19,large-v3-turbo,불났다,불 났다,0.36,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:49:39,large-v3-turbo,화재,화재,0.36,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:49:44,large-v3-turbo,화재,화재,0.35,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:49:49,large-v3-turbo,화재,과제,0.35,wrong,0.00,True,medium,화재,0.75,True,True
+2026-01-08 01:49:55,large-v3-turbo,화재,화재,0.35,exact,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:50:00,large-v3-turbo,화재,파티,0.35,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:50:17,large-v3-turbo,연기발생,연기 발생,0.36,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:50:23,large-v3-turbo,연기발생,연기 발생,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:50:28,large-v3-turbo,연기발생,연기 발생,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:50:34,large-v3-turbo,연기발생,연기 발생,0.36,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:50:39,large-v3-turbo,연기발생,연기 발생,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:50:57,large-v3-turbo,타는냄새,타는 냄새,0.39,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:51:07,large-v3-turbo,타는냄새,타는 냄새,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:51:12,large-v3-turbo,타는냄새,타는 냄새,0.35,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:51:32,large-v3-turbo,타는냄새,탄 렌즈,0.37,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:51:38,large-v3-turbo,타는냄새,타는 냄새,0.36,normalized,1.00,True,fast,화재,1.00,True,True
+2026-01-08 01:52:01,large-v3-turbo,일일구,119,0.36,wrong,0.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:54:31,large-v3-turbo,일일구,119,0.36,wrong,0.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:54:37,large-v3-turbo,일일구,한글자막 by 한효주,0.48,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:54:44,large-v3-turbo,일일구,119,0.35,wrong,0.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:54:54,large-v3-turbo,일일구,일일이 띄,0.92,different,0.57,True,fast,신고,1.00,True,True
+2026-01-08 01:55:10,large-v3-turbo,긴급,긴급,0.34,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:55:15,large-v3-turbo,긴급,킹구,0.37,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:55:21,large-v3-turbo,긴급,킹급,0.35,different,0.50,True,medium,응급의료,0.83,True,True
+2026-01-08 01:55:27,large-v3-turbo,긴급,김기름,0.53,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:55:33,large-v3-turbo,긴급,킹구,0.35,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:57:23,large-v3-turbo,구급차,구독자,0.37,wrong,0.33,True,medium,응급의료,0.71,True,True
+2026-01-08 01:57:30,large-v3-turbo,구급차,구급차,0.36,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:57:34,large-v3-turbo,구급차,구급차,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:57:39,large-v3-turbo,구급차,고급처,0.35,wrong,0.33,True,medium,응급의료,0.71,True,True
+2026-01-08 01:57:44,large-v3-turbo,구급차,구급차,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:57:54,large-v3-turbo,앰뷸런스,앰뷸런스,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:58:00,large-v3-turbo,앰뷸런스,앰뷸런스,0.36,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:58:06,large-v3-turbo,앰뷸런스,앰뷸런스,0.36,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:58:11,large-v3-turbo,앰뷸런스,앰뷸런스,0.36,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:58:16,large-v3-turbo,앰뷸런스,앰뷸런스,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 01:58:24,large-v3-turbo,신고,신고,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:58:29,large-v3-turbo,신고,신고,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:58:34,large-v3-turbo,신고,신고,0.36,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:58:38,large-v3-turbo,신고,친구,0.34,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 01:58:44,large-v3-turbo,신고,신고,0.36,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:58:58,large-v3-turbo,신고해주세요,신고해 주세요,0.36,normalized,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:05,large-v3-turbo,신고해주세요,신고해주세요.,0.37,normalized,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:10,large-v3-turbo,신고해주세요,신고해주세요,0.36,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:16,large-v3-turbo,신고해주세요,신고해주세요,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:22,large-v3-turbo,신고해주세요,신고해주세요,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:39,large-v3-turbo,신고할게요,신고할게요,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:44,large-v3-turbo,신고할게요,신고할게요,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:49,large-v3-turbo,신고할게요,신고할게요,0.34,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:54,large-v3-turbo,신고할게요,신고할게요,0.36,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 01:59:59,large-v3-turbo,신고할게요,신고할게요,0.36,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:00:13,large-v3-turbo,응급실,흥립지,0.56,wrong,0.00,False,none,,0.00,True,False
+2026-01-08 02:00:18,large-v3-turbo,응급실,응급실,0.36,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 02:00:23,large-v3-turbo,응급실,응급실,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 02:00:28,large-v3-turbo,응급실,응급실,0.35,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 02:00:32,large-v3-turbo,응급실,응급실,0.34,exact,1.00,True,fast,응급의료,1.00,True,True
+2026-01-08 02:00:56,large-v3-turbo,일일이,일일이,0.37,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:01:02,large-v3-turbo,일일이,이 릴리,0.35,wrong,0.33,True,medium,신고,0.80,True,True
+2026-01-08 02:01:07,large-v3-turbo,일일이,112,0.36,wrong,0.00,True,fast,신고,1.00,True,True
+2026-01-08 02:01:12,large-v3-turbo,일일이,112,0.35,wrong,0.00,True,fast,신고,1.00,True,True
+2026-01-08 02:01:17,large-v3-turbo,일일이,일일이,0.34,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:01:45,large-v3-turbo,경찰,경찰,0.36,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:01:50,large-v3-turbo,경찰,경찰,0.34,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:01:56,large-v3-turbo,경찰,경찰,0.35,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:02:00,large-v3-turbo,경찰,경찰,0.34,exact,1.00,True,fast,신고,1.00,True,True
+2026-01-08 02:02:04,large-v3-turbo,경찰,경찰,0.33,exact,1.00,True,fast,신고,1.00,True,True
