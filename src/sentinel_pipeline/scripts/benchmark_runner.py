@@ -18,6 +18,7 @@ GPU 부하 테스트 시뮬레이터
 import csv
 import gc
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -166,10 +167,19 @@ class LoadTestSimulator:
         self.whisper_model_name = whisper_model
         
         # 디바이스 설정
-        if gpu_enabled and torch.cuda.is_available():
-            self.device = "cuda"
+        if gpu_enabled:
+            if torch.cuda.is_available():
+                self.device = "cuda"
+                gpu_count = torch.cuda.device_count()
+                gpu_name = torch.cuda.get_device_name(0) if gpu_count > 0 else "Unknown"
+                logger.info(f"✅ GPU 감지됨: {gpu_name} ({gpu_count}개)")
+            else:
+                self.device = "cpu"
+                logger.warning(f"⚠️ GPU 사용 요청했지만 CUDA를 사용할 수 없습니다. CPU 모드로 실행됩니다.")
+                logger.warning(f"   PyTorch CUDA 버전 확인: torch.version.cuda={torch.version.cuda if hasattr(torch.version, 'cuda') else 'N/A'}")
         else:
             self.device = "cpu"
+            logger.info(f"CPU 모드로 실행 (gpu_enabled=False)")
             
         logger.info(f"LoadTestSimulator 초기화: device={self.device}, streams={num_streams}")
         
@@ -191,6 +201,9 @@ class LoadTestSimulator:
         self._scream_model = None
         self._stt_model = None
         
+        # 모델 접근용 lock (멀티스레딩 안전성)
+        self._model_lock = threading.Lock()
+        
         # VAD 필터 (Silero VAD 사용)
         self._vad_filter = None
         try:
@@ -208,13 +221,13 @@ class LoadTestSimulator:
         
         # 실제 오디오 파일 캐시 - 카테고리별 분류
         # 비명: scream_*.mp3 (예: scream_1.mp3, scream_2.mp3, scream_3.mp3)
-        # 긴급 키워드: 경찰.m4a, 긴급.m4a, 도와주세요.m4a, 사람살려.m4a, 살려주세요.m4a
-        # 일반: non_scream_*.wav, 마이크.m4a, 음성파일.m4a, 처리용량.m4a, 테스트.m4a
+        # 긴급 키워드: 경찰.mp4, 긴급.mp4, 도와주세요.mp4, 사람살려.mp4, 살려주세요.mp4
+        # 일반: non_scream_*.wav, 마이크.mp4, 음성파일.mp4, 처리용량.mp4, 테스트.mp4
         self._all_audio_files: list[tuple[str, np.ndarray, str]] = []  # [(filename, audio_data, category), ...]
         
         # 긴급 키워드 파일 목록 (하드코딩)
-        self.EMERGENCY_KEYWORD_FILES = {"경찰.m4a", "긴급.m4a", "도와주세요.m4a", "사람살려.m4a", "살려주세요.m4a"}
-        self.NORMAL_M4A_FILES = {"마이크.m4a", "음성파일.m4a", "처리용량.m4a", "테스트.m4a"}
+        self.EMERGENCY_KEYWORD_FILES = {"경찰.mp4", "긴급.mp4", "도와주세요.mp4", "사람살려.mp4", "살려주세요.mp4"}
+        self.NORMAL_MP4_FILES = {"마이크.mp4", "음성파일.mp4", "처리용량.mp4", "테스트.mp4"}
         
         # 실제 오디오 파일 로드 (필수)
         self._load_sample_audio_files()
@@ -277,12 +290,15 @@ class LoadTestSimulator:
         # 카테고리 카운터
         category_counts = {"scream": 0, "emergency_keyword": 0, "normal": 0}
         
-        # 모든 오디오 파일 로드 (wav, m4a, mp3)
+        # 모든 오디오 파일 로드 (wav, mp4, mp3)
         all_files = (
             list(self.sample_data_path.glob("*.wav")) + 
-            list(self.sample_data_path.glob("*.m4a")) + 
+            list(self.sample_data_path.glob("*.mp4")) + 
             list(self.sample_data_path.glob("*.mp3"))
         )
+        
+        # 카테고리별 파일 목록 추적
+        category_files = {"scream": [], "emergency_keyword": [], "normal": []}
         
         for file_path in all_files:
             try:
@@ -294,13 +310,31 @@ class LoadTestSimulator:
                 
                 self._all_audio_files.append((filename, audio, category))
                 category_counts[category] += 1
+                category_files[category].append(filename)
                 logger.debug(f"  로드: {filename} ({len(audio)/self.SAMPLE_RATE:.1f}초) [{category}]")
             except Exception as e:
-                logger.warning(f"  로드 실패: {file_path.name} - {e}")
+                error_msg = str(e) if str(e) else f"{type(e).__name__}"
+                logger.warning(f"  로드 실패: {file_path.name} - {error_msg}")
+                logger.debug(f"  상세: {file_path} - {repr(e)}", exc_info=True)
         
         logger.info(f"샘플 오디오 로드 완료: 비명 {category_counts['scream']}개, "
                    f"긴급키워드 {category_counts['emergency_keyword']}개, "
                    f"일반 {category_counts['normal']}개")
+        
+        # 디버깅: 카테고리별 파일 목록 출력
+        if category_files['scream']:
+            logger.info(f"  🔴 비명 파일: {', '.join(category_files['scream'])}")
+        if category_files['emergency_keyword']:
+            logger.info(f"  🟠 긴급키워드 파일: {', '.join(category_files['emergency_keyword'])}")
+        if category_files['normal']:
+            logger.info(f"  🟢 일반 파일: {', '.join(category_files['normal'])}")
+        
+        # 예상 파일과 실제 로드된 파일 비교
+        expected_emergency = self.EMERGENCY_KEYWORD_FILES
+        loaded_emergency = set(category_files['emergency_keyword'])
+        missing_emergency = expected_emergency - loaded_emergency
+        if missing_emergency:
+            logger.warning(f"  ⚠️ 긴급키워드 파일 누락: {', '.join(missing_emergency)} (mp4 파일이 없거나 로드 실패)")
     
     def _classify_audio_file(self, filename: str) -> str:
         """
@@ -459,7 +493,9 @@ class LoadTestSimulator:
         
         # --- Step 1: 비명 감지 (ResNet18) ---
         t1_start = time.perf_counter()
-        result = self._scream_model.predict(audio)
+        # 모델 접근 시 lock 사용 (멀티스레딩 안전성)
+        with self._model_lock:
+            result = self._scream_model.predict(audio)
         
         if self.device == "cuda":
             torch.cuda.synchronize()  # GPU 작업 완료 대기
@@ -488,17 +524,19 @@ class LoadTestSimulator:
         if not is_scream:
             t2_start = time.perf_counter()
             
-            segments, _ = self._stt_model.transcribe(
-                audio,
-                beam_size=5,
-                language="ko",
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=200, threshold=0.3),
-            )
-            
-            # 제너레이터에서 텍스트 추출
-            text_parts = [s.text for s in segments]
-            transcript = " ".join(text_parts).strip()
+            # 모델 접근 시 lock 사용 (멀티스레딩 안전성)
+            with self._model_lock:
+                segments, _ = self._stt_model.transcribe(
+                    audio,
+                    beam_size=5,
+                    language="ko",
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=200, threshold=0.3),
+                )
+                
+                # 제너레이터에서 텍스트 추출 (lock 내에서 완료)
+                text_parts = [s.text for s in segments]
+                transcript = " ".join(text_parts).strip()
             
             if self.device == "cuda":
                 torch.cuda.synchronize()
@@ -760,6 +798,7 @@ class LoadTestSimulator:
                 # 오디오 처리
                 try:
                     chunk_start = time.perf_counter()
+                    chunk_start_abs = time.time()  # 절대 시간 (병렬 실행 확인용)
                     
                     if first_chunk and progress_callback:
                         with callback_lock:
@@ -769,9 +808,16 @@ class LoadTestSimulator:
                                 "phase": "running"
                             })
                     
+                    # 병렬 실행 확인을 위한 로깅
+                    logger.debug(f"Stream {stream_id} 처리 시작: {chunk_start_abs:.3f}")
+                    
                     metrics = self.simulate_stream(stream_id)
                     chunk_end = time.perf_counter()
+                    chunk_end_abs = time.time()
                     chunk_duration = chunk_end - chunk_start
+                    
+                    # 병렬 실행 확인을 위한 로깅
+                    logger.debug(f"Stream {stream_id} 처리 완료: {chunk_end_abs:.3f} (소요: {chunk_duration:.3f}초)")
                     
                     metrics_dict = {
                         "stream_id": stream_id,
@@ -837,6 +883,10 @@ class LoadTestSimulator:
                 "phase": "running"
             })
         
+        # 병렬 실행 확인을 위한 활성 스트림 추적
+        active_streams = set()
+        active_streams_lock = threading.Lock()
+        
         for i in range(self.num_streams):
             t = threading.Thread(target=stream_worker, args=(i,), daemon=True)
             t.start()
@@ -852,6 +902,9 @@ class LoadTestSimulator:
             
             # 스트림 시작 시간 분산 (동시 시작 방지)
             time.sleep(interval / self.num_streams)
+        
+        logger.info(f"⚠️ Python GIL 제약: CPU 모드에서는 threading이 실제 병렬 실행을 보장하지 않습니다. "
+                   f"실제 병렬 처리를 위해서는 GPU 사용 또는 multiprocessing이 필요합니다.")
         
         logger.info(f"모든 스트림 시작됨. {duration}초 동안 실행...")
         
