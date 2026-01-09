@@ -63,17 +63,29 @@ dev = [
 # Linux와 Windows 환경 모두를 지원하도록 해결 범위 확장
 environments = ["sys_platform == 'linux'", "sys_platform == 'win32'"]
 
-# Pytorch CPU 인덱스 설정 (explicit = true는 명시된 패키지 외에는 이 인덱스를 쓰지 말라는 의미)
+# PyTorch CUDA 인덱스 설정 (원격 서버 GPU용)
+# explicit = true는 명시된 패키지 외에는 이 인덱스를 쓰지 말라는 의미
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
 # 특정 패키지만 해당 인덱스에서 가져오도록 지정 (requests 등 다른 패키지와의 충돌 방지)
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
-torchvision = { index = "pytorch-cpu" }
-torchaudio = { index = "pytorch-cpu" }
+torch = [{ index = "pytorch" }]
+torchvision = [{ index = "pytorch" }]
+torchaudio = [{ index = "pytorch" }]
+
+# 로컬 개발 환경용 (CPU 버전) - 주석 처리됨
+# [[tool.uv.index]]
+# name = "pytorch-cpu"
+# url = "https://download.pytorch.org/whl/cpu"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = { index = "pytorch-cpu" }
+# torchvision = { index = "pytorch-cpu" }
+# torchaudio = { index = "pytorch-cpu" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sentinel_pipeline"]
