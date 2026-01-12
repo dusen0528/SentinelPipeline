@@ -23,10 +23,9 @@ from sentinel_pipeline.domain.models.audio_stream import (
 from sentinel_pipeline.domain.models.event import Event, EventType, EventStage
 from sentinel_pipeline.infrastructure.audio.readers.mic_reader import MicAudioReader
 from sentinel_pipeline.infrastructure.audio.readers.rtsp_reader import RtspAudioReader
-from sentinel_pipeline.infrastructure.audio.processors.scream_detector import ScreamDetector
+from sentinel_pipeline.infrastructure.audio.processors.batch_scream_detector import BatchScreamDetector
 from sentinel_pipeline.infrastructure.audio.processors.risk_analyzer import RiskAnalyzer
 from sentinel_pipeline.infrastructure.audio.processors.vad_filter import create_vad_filter
-from sentinel_pipeline.application.event.emitter import EventEmitter
 from sentinel_pipeline.interface.api.ws_bus import publish_stream_update, broadcast
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,6 @@ class AudioStreamContext:
         self.stream_id = config.stream_id
         self.state = AudioStreamState(config=config)
         self.reader = None
-        self.scream_detector = None
         self.risk_analyzer = None
         self.vad_filter = None 
         
@@ -65,19 +63,36 @@ class AudioManager:
         self._event_emitter: Optional[EventEmitter] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         
-        # 기본 모델 경로 (설정에서 주입받거나 상수로 정의)
+        # 공유 배치 엔진 (Lazy Loading)
+        self._batch_scream_detector: Optional[BatchScreamDetector] = None
+        
+        # 기본 모델 경로
         self.model_dir = Path("models/audio")
-        self.scream_model_path = self.model_dir / "resnet18_scream_detector.pth"
+        self.scream_model_path = self.model_dir / "resnet18_scream_detector_v2.pth"
         
     def set_dependencies(self, event_emitter: EventEmitter):
         self._event_emitter = event_emitter
         
     def set_event_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
+        # 루프가 설정되면 배치 엔진도 시작
+        if self._batch_scream_detector:
+            self._batch_scream_detector.start(loop)
 
     def start_stream(self, config: AudioStreamConfig) -> AudioStreamState:
         with self._lock:
-            if config.stream_id in self._streams:
+            # 1. 공유 배치 탐지기 초기화 (최초 1회)
+            if self._batch_scream_detector is None:
+                model_path = config.scream_model_path if config.scream_model_path else str(self.scream_model_path)
+                logger.info(f"🚀 Initializing Shared BatchScreamDetector: {model_path}")
+                self._batch_scream_detector = BatchScreamDetector(
+                    model_path=model_path,
+                    threshold=config.scream_threshold,
+                    batch_size=16  # TODO: 설정에서 가져오게 수정 가능
+                )
+                # 이미 루프가 설정되어 있다면 즉시 시작
+                if self._loop:
+                    self._batch_scream_detector.start(self._loop)
                 ctx = self._streams[config.stream_id]
                 if ctx.state.is_active:
                     logger.warning(f"Audio stream already active: {config.stream_id}")
@@ -87,16 +102,7 @@ class AudioManager:
             self._streams[config.stream_id] = ctx
             
             try:
-                # 1. 프로세서 초기화
-                # 모델 경로 결정: config에 지정된 경로가 있으면 사용, 없으면 기본값
-                model_path = config.scream_model_path if config.scream_model_path else str(self.scream_model_path)
-                
-                ctx.scream_detector = ScreamDetector(
-                    model_path=model_path,
-                    threshold=config.scream_threshold,
-                    model_arch=config.scream_model_arch,
-                    enable_filtering=config.scream_enable_filtering
-                )
+                # 2. 프로세서 초기화
                 
                 if config.stt_enabled:
                     ctx.risk_analyzer = RiskAnalyzer(
@@ -109,11 +115,10 @@ class AudioManager:
                         use_korean_model=config.use_korean_model
                     )
                     
-                    # VAD 필터 초기화 (문지기 고용) - 침묵/잡음 차단
                     try:
                         ctx.vad_filter = create_vad_filter(
                             sample_rate=config.sample_rate,
-                            threshold=0.5,  # 필요시 config에서 가져오게 수정 가능
+                            threshold=0.5,
                             use_highpass=True
                         )
                         logger.info(f"🛡️ VAD Filter initialized for stream {config.stream_id}")
@@ -121,20 +126,22 @@ class AudioManager:
                         logger.warning(f"⚠️ Failed to initialize VAD filter for {config.stream_id}: {e}")
                         ctx.vad_filter = None
                 
-                # 2. 리더 초기화
+                # 3. 리더 초기화 (스레드 리더 -> 비동기 브리지)
+                on_chunk_cb = lambda chunk: self._bridge_on_chunk(ctx, chunk)
+                
                 if config.use_microphone:
                     ctx.reader = MicAudioReader(
                         sample_rate=config.sample_rate,
                         chunk_duration=config.chunk_duration,
                         device_index=config.mic_device_index,
-                        on_chunk=lambda chunk: self._on_audio_chunk(ctx, chunk)
+                        on_chunk=on_chunk_cb
                     )
                 else:
                     ctx.reader = RtspAudioReader(
                         rtsp_url=config.rtsp_url,
                         sample_rate=config.sample_rate,
                         chunk_duration=config.chunk_duration,
-                        on_chunk=lambda chunk: self._on_audio_chunk(ctx, chunk)
+                        on_chunk=on_chunk_cb
                     )
                 
                 # 3. 시작
@@ -190,100 +197,89 @@ class AudioManager:
         with self._lock:
             return [ctx.state for ctx in self._streams.values()]
 
-    def _on_audio_chunk(self, ctx: AudioStreamContext, chunk: Any):
-        """오디오 청크 처리 콜백"""
-        # ⚠️ time.time() 대신 time.monotonic() 사용 (멀티 프로세스/스레드 안정성)
+    def _bridge_on_chunk(self, ctx: AudioStreamContext, chunk: Any):
+        """스레드 리더 -> 비동기 이벤트 루프 연결 브리지"""
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self._async_on_audio_chunk(ctx, chunk),
+                self._loop
+            )
+
+    async def _async_on_audio_chunk(self, ctx: AudioStreamContext, chunk: Any):
+        """[Async] 오디오 청크 처리 핵심 로직"""
         chunk_received_time = time.monotonic()
         
         try:
             ctx.state.stats.record_chunk()
             ctx.chunk_counter += 1
-            current_time = time.monotonic()  # time.time() 대신 time.monotonic() 사용
+            current_time = time.monotonic()
             
-            # 1. 비명 감지 (실시간성이 중요하므로 동기 처리)
-            # ScreamDetector는 빠르므로 항상 처리 (Drop 대상 아님)
+            # 1. 비명 감지 (Batch Inference 요청)
             inference_start_time = time.monotonic()
-            scream_result = ctx.scream_detector.process(chunk)
+            
+            # 공유 배치 탐지기 호출 (await로 결과를 기다리지만, 다른 스트림은 그 사이 큐에 쌓임)
+            if self._batch_scream_detector:
+                scream_result = await self._batch_scream_detector.predict(chunk)
+            else:
+                return # 엔진 미초기화 시 스킵
+                
             inference_done_time = time.monotonic()
             scream_detected = scream_result['is_scream']
             
-            # 추론 시간 계산
+            # 추론 시간 및 레이턴시
             inference_ms = (inference_done_time - inference_start_time) * 1000
             total_latency_ms = (inference_done_time - chunk_received_time) * 1000
             
-            # 파이프라인 상태를 WebSocket으로 전송 (프론트엔드가 기대하는 형식)
+            # WebSocket 상태 전송
             self._send_pipeline_status(
                 stream_id=ctx.stream_id,
-                node_id=2,  # Scream Detection 노드
+                node_id=2, 
                 scream_detected=scream_detected,
-                confidence=scream_result.get('confidence', 0.0)
+                confidence=scream_result.get('prob', 0.0)
             )
             
             if scream_detected:
-                event_emitted_time = time.monotonic()
-                event_latency_ms = (event_emitted_time - chunk_received_time) * 1000
-                
                 if current_time - ctx.last_scream_time > ctx.scream_cooldown:
                     ctx.last_scream_time = current_time
                     ctx.state.stats.scream_detected_count += 1
                     
-                    # 비명 감지 이벤트 전송
-                    self._send_scream_detected(
-                        stream_id=ctx.stream_id,
-                        confidence=scream_result['confidence']
-                    )
-                    
+                    self._send_scream_detected(ctx.stream_id, scream_result['prob'])
                     self._emit_event(
                         stream_id=ctx.stream_id,
                         event_type=EventType.SCREAM,
-                        confidence=scream_result['confidence'],
-                        details={'threshold': scream_result['threshold']}
+                        confidence=scream_result['prob'],
+                        details={'batch_mode': True}
                     )
                     
-                    # 이벤트 발생 시 항상 로깅 (Event-Triggered 방식)
                     logger.info(
-                        f"[STREAM={ctx.stream_id}] chunk={ctx.chunk_counter} "
-                        f"chunk_ms={ctx.chunk_duration_ms} infer={inference_ms:.1f}ms "
-                        f"score={scream_result.get('confidence', 0.0):.2f} "
-                        f"event=DETECTED latency={event_latency_ms:.1f}ms"
+                        f"[STREAM={ctx.stream_id}] [BATCH] chunk={ctx.chunk_counter} "
+                        f"infer={inference_ms:.1f}ms score={scream_result['prob']:.2f} "
+                        f"event=DETECTED latency={total_latency_ms:.1f}ms"
                     )
             else:
-                # 정상 상태: Sampling 방식 (1%만 로깅)
                 if ctx.chunk_counter % 100 == 0:
-                    logger.debug(
-                        f"[STREAM={ctx.stream_id}] chunk={ctx.chunk_counter} "
-                        f"chunk_ms={ctx.chunk_duration_ms} infer={inference_ms:.1f}ms "
-                        f"score={scream_result.get('confidence', 0.0):.2f} "
-                        f"event=NORMAL latency={total_latency_ms:.1f}ms"
-                    )
-                
-                # 2. STT 및 위험 분석 (Latest-Win 전략)
-                # - 비명이 감지되지 않은 경우에만 STT 분석 수행
-                # - VAD 필터로 침묵/잡음 차단 (문지기 검문)
-                # - 최신 청크를 버퍼에 덮어씀 (Drop Oldest 자동 적용)
-                # - 작업자가 쉬고 있으면 깨워서 일을 시킴
+                    logger.debug(f"[STREAM={ctx.stream_id}] [BATCH] chunk={ctx.chunk_counter} Normal")
+
+                # 2. STT 및 위험 분석 (VAD 필터 포함)
                 if ctx.risk_analyzer:
-                    # VAD 검문소: 사람 목소리(Speech)일 때만 STT 큐에 넣음
                     is_speech = True
                     if ctx.vad_filter:
                         try:
-                            # chunk가 numpy array라고 가정 (mic_reader/rtsp_reader 확인 필요)
-                            # 필요시 타입 변환 로직 추가
+                            # VAD는 여전히 CPU 작업 (추후 이것도 Batch화 가능)
                             is_speech = ctx.vad_filter.is_speech(chunk)
-                        except Exception as e:
-                            logger.debug(f"VAD filter error for {ctx.stream_id}: {e}, allowing through")
-                            is_speech = True  # 에러 시 통과 (안전 우선)
+                        except Exception:
+                            is_speech = True
                     
                     if is_speech:
                         ctx.latest_chunk = chunk
-                        
                         if not ctx.is_processing:
                             ctx.is_processing = True
+                            # STT 루프는 여전히 ThreadPool에서 실행 (Whisper 가용성 때문)
                             self._executor.submit(self._process_loop, ctx)
-                    else:
-                        # 침묵/잡음 무시 (디버깅용 로그는 필요시 활성화)
-                        # logger.debug(f"[STREAM={ctx.stream_id}] Silence/noise filtered by VAD")
-                        pass
+                
+        except Exception as e:
+            logger.error(f"Error in async_on_audio_chunk for {ctx.stream_id}: {e}", exc_info=True)
+            ctx.state.stats.record_error()
                 
         except Exception as e:
             logger.error(f"Error processing audio chunk for {ctx.stream_id}: {e}")
@@ -456,4 +452,12 @@ class AudioManager:
     def stop_all(self):
         for stream_id in list(self._streams.keys()):
             self.stop_stream(stream_id)
+        
+        # 공유 배치 탐지기 정리
+        if self._batch_scream_detector and self._loop:
+            self._loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._batch_scream_detector.stop())
+            )
+            self._batch_scream_detector = None
+            
         self._executor.shutdown(wait=False)

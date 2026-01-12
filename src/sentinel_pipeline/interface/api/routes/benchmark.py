@@ -259,6 +259,7 @@ async def stream_benchmark(
     continuous: bool = False,
     duration: float = 30.0,
     interval: float = 1.0,
+    batch_size: int = 16,  # 배치 크기 (GPU 메모리 여유에 따라 조정: 8, 16, 32 등)
 ):
     """
     SSE를 통한 실시간 벤치마크 스트리밍
@@ -285,6 +286,7 @@ async def stream_benchmark(
                 num_streams=streams,
                 gpu_enabled=gpu_enabled,
                 whisper_model=whisper_model,
+                batch_size=batch_size,
             )
             
             if continuous:
