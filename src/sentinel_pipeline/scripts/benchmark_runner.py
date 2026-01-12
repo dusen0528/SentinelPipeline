@@ -92,7 +92,14 @@ class LoadTestSimulator:
                 device=self.device,
                 batch_size=self.batch_size
             )
-            self.detector.start(self._loop)
+            
+            # start()가 async이므로 run_until_complete로 실행
+            if self._loop.is_running():
+                # 이미 루프가 실행 중이면 create_task 사용
+                asyncio.run_coroutine_threadsafe(self.detector.start(), self._loop)
+            else:
+                # 루프가 없으면 run_until_complete 사용
+                self._loop.run_until_complete(self.detector.start())
             
             # Whisper 엔진은 Singleton
             self.stt_engine = GlobalInferenceEngine()

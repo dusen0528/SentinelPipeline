@@ -25,9 +25,8 @@ async def test_batch_scream_detector():
         latency_limit=0.1
     )
     
-    # 2. 루프 시작
-    loop = asyncio.get_running_loop()
-    detector.start(loop)
+    # 2. 루프 시작 (async start)
+    await detector.start()
     
     logger.info(f"Using device: {detector.device}")
     if "cuda" in detector.device:

@@ -13,6 +13,10 @@ uv.lock
 # *.pb
 # *.tflite
 
+# Exclude large production models specifically
+resnet18_scream_detector_v2.pth
+**/resnet18_scream_detector_v2.pth
+
 *.log
 dist/
 build/

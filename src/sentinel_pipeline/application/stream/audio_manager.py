@@ -75,9 +75,9 @@ class AudioManager:
         
     def set_event_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
-        # 루프가 설정되면 배치 엔진도 시작
-        if self._batch_scream_detector:
-            self._batch_scream_detector.start(loop)
+        # 루프가 설정되면 배치 엔진도 시작 (async이므로 create_task 사용)
+        if self._batch_scream_detector and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._batch_scream_detector.start(), self._loop)
 
     def start_stream(self, config: AudioStreamConfig) -> AudioStreamState:
         with self._lock:
@@ -90,9 +90,9 @@ class AudioManager:
                     threshold=config.scream_threshold,
                     batch_size=16  # TODO: 설정에서 가져오게 수정 가능
                 )
-                # 이미 루프가 설정되어 있다면 즉시 시작
-                if self._loop:
-                    self._batch_scream_detector.start(self._loop)
+                # 이미 루프가 설정되어 있다면 즉시 시작 (async이므로 create_task 사용)
+                if self._loop and self._loop.is_running():
+                    asyncio.run_coroutine_threadsafe(self._batch_scream_detector.start(), self._loop)
                 ctx = self._streams[config.stream_id]
                 if ctx.state.is_active:
                     logger.warning(f"Audio stream already active: {config.stream_id}")

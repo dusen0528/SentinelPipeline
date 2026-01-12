@@ -83,8 +83,24 @@ class BatchScreamDetector:
             if Path(self.model_path).exists():
                 checkpoint = torch.load(self.model_path, map_location=self.device)
                 state_dict = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
-                new_state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-                model.load_state_dict(new_state_dict)
+                new_state_dict = {}
+                
+                # 키 변환: module. 제거 및 fc 구조 변환
+                for k, v in state_dict.items():
+                    # module. 제거
+                    new_key = k.replace("module.", "")
+                    
+                    # 체크포인트가 단순 Linear (fc.weight, fc.bias)인 경우
+                    # 현재 모델은 Sequential (fc.0=Dropout, fc.1=Linear)이므로
+                    # fc.weight -> fc.1.weight, fc.bias -> fc.1.bias로 변환
+                    if new_key == "fc.weight":
+                        new_key = "fc.1.weight"
+                    elif new_key == "fc.bias":
+                        new_key = "fc.1.bias"
+                    
+                    new_state_dict[new_key] = v
+                
+                model.load_state_dict(new_state_dict, strict=False)
                 logger.info(f"✅ Model weights loaded from {self.model_path}")
             else:
                 logger.warning(f"⚠️ Model path not found: {self.model_path}. Using random weights.")
@@ -97,25 +113,27 @@ class BatchScreamDetector:
             logger.error(f"❌ Failed to load model: {e}")
             raise e
 
-    def start(self, loop: Optional[asyncio.AbstractEventLoop] = None):
-        """워커 시작 (명시적 루프 지정 가능)"""
-        if not self.running:
-            self.running = True
-            self.loop = loop or asyncio.get_running_loop()
+    async def start(self):
+        """Async 컨텍스트에서 워커 시작 (FastAPI lifespan 호환)"""
+        if self.running:
+            return
             
-            # 큐 생성은 반드시 루프 내에서 (또는 루프 바인딩)
-            async def _init_queue():
-                self.queue = asyncio.Queue()
-                self.worker_task = asyncio.create_task(self._worker_loop())
-            
-            if self.loop.is_running():
-                asyncio.run_coroutine_threadsafe(_init_queue(), self.loop)
-            else:
-                # 아직 루프가 돌지 않는다면 (예: 테스트 코드)
-                # 이 방식은 uvicorn 환경에선 거의 안 쓰임
-                pass
-                
-            logger.info(f"🚀 Batch worker started on loop {id(self.loop)}")
+        self.running = True
+        self.loop = asyncio.get_running_loop()
+        
+        # 큐 생성 및 워커 태스크 시작 (Native Async)
+        self.queue = asyncio.Queue()
+        self.worker_task = asyncio.create_task(self._worker_loop())
+        
+        logger.info(f"🚀 Batch worker started")
+        
+        # Warmup: 첫 번째 사용자 요청 시 CUDA 초기화 딜레이 제거
+        try:
+            dummy_audio = np.zeros(self.target_length, dtype=np.float32)
+            await self.predict(dummy_audio)
+            logger.info("🔥 GPU warmup completed")
+        except Exception as e:
+            logger.warning(f"⚠️ Warmup failed (non-critical): {e}")
 
     async def predict(self, audio: np.ndarray) -> dict:
         """[Public API]"""
