@@ -28,8 +28,8 @@ class AudioDataLoader:
             "normal": []
         }
         
-        # 기본 경로 설정
-        self.base_path = Path(__file__).resolve().parent.parent / "sample_data"
+        # 기본 경로 설정: 스크립트와 같은 위치의 sample_data 폴더
+        self.base_path = Path(__file__).resolve().parent / "sample_data"
         self._load_all()
 
     def _classify(self, filename: str) -> str:
