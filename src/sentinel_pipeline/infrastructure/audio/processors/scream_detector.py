@@ -6,6 +6,7 @@ ResNet18 기반 모델을 사용하여 오디오에서 비명을 감지합니다
 """
 
 import os
+import gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -414,6 +415,23 @@ class ScreamDetector(AudioProcessor):
                 probabilities = F.softmax(outputs, dim=1)
                 prob_scream = probabilities[0][1].item()
                 logger.warning(f"🤖 모델 추론 결과: prob_scream={prob_scream:.4f}, threshold={self.threshold}, is_scream={prob_scream > self.threshold}")
+            
+            # GPU 메모리 정리: 추론 후 텐서를 CPU로 이동 후 삭제 (더 확실한 정리)
+            if self.device == "cuda":
+                # GPU 작업 완료 대기
+                torch.cuda.synchronize()
+                # 텐서를 CPU로 이동 후 삭제 (GPU 메모리 즉시 해제)
+                if feature.is_cuda:
+                    feature = feature.cpu()
+                if outputs.is_cuda:
+                    outputs = outputs.cpu()
+                if probabilities.is_cuda:
+                    probabilities = probabilities.cpu()
+                del feature, outputs, probabilities
+                # Python 가비지 컬렉터도 호출
+                gc.collect()
+                # GPU 캐시 정리
+                torch.cuda.empty_cache()
         except Exception as e:
             logger.error(f"Model inference error: {e}", exc_info=True)
             return {
