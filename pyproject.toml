@@ -20,8 +20,8 @@ dependencies = [
     "orjson>=3.10",
     "tenacity>=9.0",
     # AI inference
-    "torch==2.2.2",
-    "torchvision==0.17.2",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
     "onnxruntime>=1.18",
     "ultralytics>=8.1",
     # Async/Networking
@@ -36,7 +36,7 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.6",
     # Audio Module
-    "torchaudio==2.2.2",
+    "torchaudio>=2.6.0",
     "faster-whisper>=0.10",
     "librosa>=0.10",
     "scipy>=1.11",

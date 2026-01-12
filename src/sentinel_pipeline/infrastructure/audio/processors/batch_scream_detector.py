@@ -208,9 +208,9 @@ class BatchScreamDetector:
                 melspec_db = 10.0 * torch.log10(melspec + 1e-6)
                 
                 # Per-sample Max/Min
-                flat = melspec_db.view(melspec_db.size(0), -1)
-                max_val = flat.max(dim=1, keepdim=True)[0].view(-1, 1, 1)
-                min_val = flat.min(dim=1, keepdim=True)[0].view(-1, 1, 1)
+                flat = melspec_db.reshape(melspec_db.size(0), -1)  # .view() -> .reshape() (non-contiguous 텐서 대응)
+                max_val = flat.max(dim=1, keepdim=True)[0].reshape(-1, 1, 1)
+                min_val = flat.min(dim=1, keepdim=True)[0].reshape(-1, 1, 1)
                 
                 denom = max_val - min_val
                 denom[denom == 0] = 1.0
