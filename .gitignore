@@ -3,18 +3,20 @@ __pycache__/
 .uv-cache/
 uv.lock
 .env
-# Model files (too large for git)
-/models/
-*.pt
-*.onnx
-*.engine
-*.pth
-*.h5
-*.pb
-*.tflite
+# Model files (Optionally allow specific models)
+# /models/
+# *.pt
+# *.onnx
+# *.engine
+# *.pth
+# *.h5
+# *.pb
+# *.tflite
+
 *.log
 dist/
 build/
 
-*.wav
-*.m4a
+# Audio sample data allowed
+# *.wav
+# *.m4a
