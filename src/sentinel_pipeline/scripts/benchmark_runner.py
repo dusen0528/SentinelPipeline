@@ -7,6 +7,7 @@ GPU 부하 테스트 시뮬레이터 (Batch & Async 지원 버전)
 """
 
 import asyncio
+import csv
 import time
 import psutil
 import torch
@@ -16,6 +17,7 @@ import threading
 from typing import List, Dict, Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sentinel_pipeline.infrastructure.audio.processors.batch_scream_detector import BatchScreamDetector
 from sentinel_pipeline.infrastructure.audio.processors.risk_analyzer import GlobalInferenceEngine
@@ -41,6 +43,65 @@ class BenchmarkResult:
     duration: float = 0.0
     total_processed: int = 0
     details: List[Dict] = field(default_factory=list)
+    
+    def save_to_csv(self, filepath: Optional[str] = None) -> str:
+        """
+        결과를 CSV 파일로 저장
+        
+        Args:
+            filepath: 저장 경로 (None이면 자동 생성)
+            
+        Returns:
+            저장된 파일 경로
+        """
+        if filepath is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = f"benchmark_result_{timestamp}.csv"
+        
+        filepath = Path(filepath)
+        
+        with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            
+            # 헤더 작성
+            writer.writerow([
+                "stream_id",
+                "chunk_id",
+                "timestamp",
+                "audio_file",
+                "audio_category",
+                "detected",
+                "scream_prob",
+                "step1_latency_ms",
+                "step2_latency_ms",
+                "total_latency_ms",
+                "gpu_memory_mb",
+                "cpu_percent",
+                "system_memory_mb",
+                "transcript",
+            ])
+            
+            # 데이터 작성
+            for d in self.details:
+                writer.writerow([
+                    d.get("stream_id", ""),
+                    d.get("chunk_id", 0),
+                    d.get("timestamp", ""),
+                    d.get("audio_file", ""),
+                    d.get("audio_category", "normal"),
+                    d.get("detected", False),
+                    round(d.get("scream_prob", 0.0), 3),
+                    round(d.get("step1_latency", 0.0), 2),
+                    round(d.get("step2_latency", 0.0), 2),
+                    round(d.get("total_latency", 0.0), 2),
+                    round(d.get("gpu_memory_mb", 0.0), 2),
+                    round(d.get("cpu_percent", 0.0), 1),
+                    round(d.get("system_memory_mb", 0.0), 2),
+                    d.get("transcript", ""),
+                ])
+        
+        logger.info(f"💾 Benchmark results saved to {filepath}")
+        return str(filepath)
 
 class LoadTestSimulator:
     """
@@ -109,6 +170,8 @@ class LoadTestSimulator:
     async def _process_chunk_async(self, stream_id: int, chunk: np.ndarray, file_info: dict) -> dict:
         """한 개의 청크를 처리하는 비동기 로직"""
         start_t = time.perf_counter()
+        # 처리 시작  시간 
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         
         # 1. Scream Detection (Batch)
         s1_start = time.perf_counter()
@@ -135,7 +198,7 @@ class LoadTestSimulator:
                 stream_id=f"sim_{stream_id}",
                 audio_data=chunk,
                 callback=stt_callback,
-                timestamp=time.time()
+                timestamp=timestamp
             )
             self.stt_engine.submit(req)
             
@@ -150,9 +213,14 @@ class LoadTestSimulator:
         gpu_mem = 0
         if "cuda" in self.device:
             gpu_mem = torch.cuda.memory_allocated() / 1024**2
+        
+        mem_info = psutil.virtual_memory()
+        system_mem_mb = mem_info.used / (1024**2)
             
         return {
             "stream_id": stream_id,
+            "chunk_id": 0,  # 배치 모드에서는 0, continuous 모드에서는 chunk_count 사용
+            "timestamp": timestamp,
             "step1_latency": s1_latency,
             "step2_latency": s2_latency,
             "total_latency": total_latency,
@@ -162,6 +230,7 @@ class LoadTestSimulator:
             "audio_category": file_info.get("category", "normal"),
             "gpu_memory_mb": gpu_mem,
             "cpu_percent": psutil.cpu_percent(),
+            "system_memory_mb": system_mem_mb,
             "transcript": transcript
         }
 
@@ -217,9 +286,14 @@ class LoadTestSimulator:
         
         async def stream_loop(sid):
             nonlocal processed_count
+            chunk_count = 0
             while time.time() < end_time:
                 filename, chunk, info = self.data_loader.get_prepared_chunk()
                 res = await self._process_chunk_async(sid, chunk, info)
+                
+                # Continuous 모드에서는 chunk_id 업데이트
+                res["chunk_id"] = chunk_count
+                chunk_count += 1
                 
                 with self._lock:
                     details.append(res)
@@ -303,3 +377,66 @@ class LoadTestSimulator:
         if self.detector:
             asyncio.run_coroutine_threadsafe(self.detector.stop(), self._loop)
             self.detector = None
+
+
+if __name__ == "__main__":
+    """CLI 실행부"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="GPU 부하 테스트 시뮬레이터")
+    parser.add_argument("--streams", "-n", type=int, default=10, help="스트림 개수")
+    parser.add_argument("--whisper-model", "-m", type=str, default="base", help="Whisper 모델 크기")
+    parser.add_argument("--cpu-only", action="store_true", help="CPU만 사용")
+    parser.add_argument("--no-warmup", action="store_true", help="워밍업 건너뛰기")
+    parser.add_argument("--continuous", "-c", action="store_true", help="연속 부하 테스트 모드")
+    parser.add_argument("--duration", "-t", type=float, default=30.0, help="연속 테스트 지속 시간 (초)")
+    parser.add_argument("--interval", "-i", type=float, default=1.0, help="오디오 입력 간격 (초)")
+    parser.add_argument("--output", "-o", type=str, default=None, help="결과 CSV 파일 경로")
+    parser.add_argument("--verbose", "-v", action="store_true", help="상세 로그 출력")
+    
+    args = parser.parse_args()
+    
+    # 로깅 설정
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format='%(asctime)s [%(levelname)s] %(message)s')
+    
+    # 시뮬레이터 생성
+    sim = LoadTestSimulator(
+        num_streams=args.streams,
+        gpu_enabled=not args.cpu_only,
+        whisper_model=args.whisper_model,
+    )
+    
+    try:
+        # 벤치마크 실행
+        if args.continuous:
+            result = sim.run_continuous_test(
+                duration=args.duration,
+                interval=args.interval,
+                warmup=not args.no_warmup
+            )
+        else:
+            result = sim.run_batch_test(
+                warmup=not args.no_warmup
+            )
+        
+        # 결과 출력
+        print(f"\n{'='*60}")
+        print(f"  Benchmark Results")
+        print(f"{'='*60}")
+        print(f"  Streams: {result.streams}")
+        print(f"  Avg Latency: {result.avg_latency*1000:.1f}ms")
+        print(f"  Max Latency: {result.max_latency*1000:.1f}ms")
+        print(f"  Min Latency: {result.min_latency*1000:.1f}ms")
+        print(f"  Throughput: {result.fps:.1f} {'chunks' if args.continuous else 'streams'}/sec")
+        print(f"  GPU Memory: {result.gpu_memory_mb:.0f}MB (Peak: {result.gpu_memory_peak_mb:.0f}MB)")
+        print(f"  CPU Usage: {result.cpu_percent:.1f}%")
+        print(f"  Scream Detected: {result.scream_count} | STT Executed: {result.stt_count}")
+        print(f"{'='*60}\n")
+        
+        # CSV 저장
+        csv_path = result.save_to_csv(args.output)
+        print(f"📄 Results saved to: {csv_path}")
+        
+    finally:
+        sim.cleanup()
