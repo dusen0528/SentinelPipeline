@@ -203,6 +203,7 @@ class LoadTestSimulator:
         
         # 모델 접근용 lock (멀티스레딩 안전성)
         self._model_lock = threading.Lock()
+        self._chunk_count = 0  # GPU 메모리 정리용 카운터
         
         # VAD 필터 (Silero VAD 사용)
         self._vad_filter = None
@@ -499,6 +500,14 @@ class LoadTestSimulator:
         
         if self.device == "cuda":
             torch.cuda.synchronize()  # GPU 작업 완료 대기
+            # 주기적으로 GPU 메모리 정리 (매 5번째 청크마다 - 더 자주)
+            if hasattr(self, '_chunk_count'):
+                self._chunk_count += 1
+            else:
+                self._chunk_count = 1
+            if self._chunk_count % 5 == 0:  # 10 -> 5로 변경 (더 자주 정리)
+                gc.collect()
+                torch.cuda.empty_cache()
             
         t1_end = time.perf_counter()
         
@@ -540,6 +549,11 @@ class LoadTestSimulator:
             
             if self.device == "cuda":
                 torch.cuda.synchronize()
+                # STT 추론 후에도 GPU 메모리 정리 (주기적으로)
+                # Whisper 모델도 GPU 메모리를 사용하므로 정리 필요
+                if self._chunk_count % 5 == 0:  # 10 -> 5로 변경
+                    gc.collect()
+                    torch.cuda.empty_cache()
                 
             t2_end = time.perf_counter()
             t2_latency = t2_end - t2_start
@@ -614,6 +628,9 @@ class LoadTestSimulator:
             torch.cuda.reset_peak_memory_stats()
             torch.cuda.empty_cache()
             gc.collect()
+        
+        # 청크 카운터 초기화
+        self._chunk_count = 0
         
         results: list[StreamMetrics] = []
         scream_count = 0
