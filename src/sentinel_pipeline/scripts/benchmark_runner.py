@@ -36,6 +36,73 @@ from sentinel_pipeline.common.logging import get_logger
 logger = get_logger(__name__)
 
 
+class GlobalModelRegistry:
+    """
+    [Singleton Pattern]
+    프로세스(Worker) 내에서 모델을 유일하게 하나만 유지 관리하는 레지스트리.
+    여러 번의 벤치마크 실행 요청이 와도 모델을 재로딩하지 않고 재사용하여 GPU 메모리(OOM)를 방지함.
+    """
+    _instance = None
+    
+    _scream_model = None
+    _stt_model = None
+    _current_whisper_model_name = None  # 현재 로드된 Whisper 모델 사이즈
+    
+    _lock = threading.Lock()  # 모델 로드/접근 동기화용 락
+
+    @classmethod
+    def get_models(cls, device: str, whisper_model_name: str, model_path: str, scream_threshold: float):
+        """
+        모델 인스턴스를 반환 (없으면 생성, 있으면 재사용)
+        """
+        with cls._lock:
+            # 1. ScreamDetector 로드 (없으면 생성)
+            if cls._scream_model is None:
+                logger.info(f"🔄 [Singleton] ScreamDetector 최초 로딩 중... (Device: {device})")
+                from sentinel_pipeline.infrastructure.audio.processors.scream_detector import ScreamDetector
+                cls._scream_model = ScreamDetector(
+                    model_path=model_path,
+                    threshold=scream_threshold,
+                    device=device,
+                    enable_filtering=True,
+                )
+            
+            # 2. Whisper STT 로드 (없거나, 모델 사이즈가 변경되었으면 재생성)
+            # Large 모델 요청 시 자동으로 large-v3-turbo 등으로 매핑
+            target_model_name = whisper_model_name
+            if target_model_name == "large":
+                target_model_name = "large-v3-turbo"
+
+            if cls._stt_model is None or cls._current_whisper_model_name != target_model_name:
+                
+                # 기존 모델이 있다면 메모리 해제
+                if cls._stt_model is not None:
+                    logger.info(f"🔄 [Singleton] Whisper 모델 교체: {cls._current_whisper_model_name} -> {target_model_name}")
+                    del cls._stt_model
+                    if device == "cuda":
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                else:
+                    logger.info(f"🔄 [Singleton] Whisper 모델 최초 로딩 중... ({target_model_name})")
+
+                from faster_whisper import WhisperModel
+                compute_type = "float16" if device == "cuda" else "int8"
+                
+                cls._stt_model = WhisperModel(
+                    target_model_name,
+                    device=device,
+                    compute_type=compute_type,
+                )
+                cls._current_whisper_model_name = target_model_name
+
+            return cls._scream_model, cls._stt_model
+
+    @classmethod
+    def get_lock(cls):
+        """추론용 락 반환 (여러 스트림이 하나의 모델을 공유하므로 동기화 필요)"""
+        return cls._lock
+
+
 @dataclass
 class StreamMetrics:
     """단일 스트림의 처리 결과 메트릭 (매 청크별 리소스 포함)"""
@@ -197,12 +264,12 @@ class LoadTestSimulator:
         else:
             self.sample_data_path = Path(sample_data_path)
         
-        # 모델 로드 (lazy loading)
+        # 모델 로드 (lazy loading via Singleton)
         self._scream_model = None
         self._stt_model = None
         
-        # 모델 접근용 lock (멀티스레딩 안전성)
-        self._model_lock = threading.Lock()
+        # 모델 접근용 lock (싱글톤 레지스트리에서 공유 락을 가져옴)
+        self._model_lock = GlobalModelRegistry.get_lock()
         self._chunk_count = 0  # GPU 메모리 정리용 카운터
         
         # VAD 필터 (Silero VAD 사용)
@@ -221,14 +288,14 @@ class LoadTestSimulator:
             logger.warning(f"⚠️ Failed to initialize VAD filter: {e}")
         
         # 실제 오디오 파일 캐시 - 카테고리별 분류
-        # 비명: scream_*.mp3 (예: scream_1.mp3, scream_2.mp3, scream_3.mp3)
-        # 긴급 키워드: 경찰.mp4, 긴급.mp4, 도와주세요.mp4, 사람살려.mp4, 살려주세요.mp4
-        # 일반: non_scream_*.wav, 마이크.mp4, 음성파일.mp4, 처리용량.mp4, 테스트.mp4
+        # 비명: scream_*.wav (예: scream_1.wav, scream_2.wav, scream_3.wav)
+        # 긴급 키워드: 경찰.wav, 긴급.wav, 도와주세요.wav, 사람살려.wav, 살려주세요.wav
+        # 일반: non_scream_*.wav, 마이크.wav, 음성파일.wav, 처리용량.wav, 테스트.wav
         self._all_audio_files: list[tuple[str, np.ndarray, str]] = []  # [(filename, audio_data, category), ...]
         
-        # 긴급 키워드 파일 목록 (하드코딩)
-        self.EMERGENCY_KEYWORD_FILES = {"경찰.mp4", "긴급.mp4", "도와주세요.mp4", "사람살려.mp4", "살려주세요.mp4"}
-        self.NORMAL_MP4_FILES = {"마이크.mp4", "음성파일.mp4", "처리용량.mp4", "테스트.mp4"}
+        # 긴급 키워드 파일 목록 (하드코딩) - 모두 .wav로 변경
+        self.EMERGENCY_KEYWORD_FILES = {"경찰.wav", "긴급.wav", "도와주세요.wav", "사람살려.wav", "살려주세요.wav"}
+        self.NORMAL_WAV_FILES = {"마이크.wav", "음성파일.wav", "처리용량.wav", "테스트.wav"}
         
         # 실제 오디오 파일 로드 (필수)
         self._load_sample_audio_files()
@@ -237,48 +304,20 @@ class LoadTestSimulator:
             raise ValueError(f"샘플 오디오 파일이 없습니다: {self.sample_data_path}")
         
     def _load_models(self):
-        """모델 로드 (최초 1회)"""
-        if self._scream_model is None:
-            logger.info("ScreamDetector 모델 로딩 중...")
-            from sentinel_pipeline.infrastructure.audio.processors.scream_detector import ScreamDetector
-            
-            self._scream_model = ScreamDetector(
-                model_path=self.model_path,
-                threshold=self.scream_threshold,
-                device=self.device,
-                enable_filtering=True,  # ResNet-ScreamDetect와 동일하게 필터링 활성화
-            )
-            logger.info(f"ScreamDetector 로드 완료: {self.device}")
-            
-        if self._stt_model is None:
-            # large 모델 선택 시 large-v3-turbo 사용 (ResNet 프로젝트와 동일)
-            model_name = self.whisper_model_name
-            if model_name == "large":
-                model_name = "large-v3-turbo"
-            
-            logger.info(f"Whisper STT 모델 로딩 중 ({model_name})...")
-            from faster_whisper import WhisperModel
-            
-            # GPU 사용 시 float16, CPU는 int8
-            compute_type = "float16" if self.device == "cuda" else "int8"
-            
-            self._stt_model = WhisperModel(
-                model_name,
-                device=self.device,
-                compute_type=compute_type,
-            )
-            
-            # 모델이 실제로 GPU에 로드되었는지 확인
-            if self.device == "cuda":
-                import torch
-                # 더 상세한 GPU 메모리 정보 로깅
-                allocated_mb = torch.cuda.memory_allocated() / (1024 * 1024)
-                reserved_mb = torch.cuda.memory_reserved() / (1024 * 1024)
-                logger.info(f"   GPU Memory Allocated: {allocated_mb:.2f} MB, Reserved: {reserved_mb:.2f} MB")
-                if allocated_mb == 0:
-                    logger.warning("   GPU에 메모리가 할당되지 않았습니다. CPU 모드로 실행 중일 수 있습니다.")
-            
-            logger.info(f"Whisper 로드 완료: {model_name} on {self.device}")
+        """모델 로드 (Singleton 패턴 사용)"""
+        # Global Registry를 통해 모델 인스턴스를 가져옴 (이미 로드되어 있으면 재사용)
+        self._scream_model, self._stt_model = GlobalModelRegistry.get_models(
+            device=self.device,
+            whisper_model_name=self.whisper_model_name,
+            model_path=self.model_path,
+            scream_threshold=self.scream_threshold
+        )
+        
+        # 모델이 실제로 GPU에 로드되었는지 확인 (Logging)
+        if self.device == "cuda":
+            import torch
+            allocated_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+            logger.info(f"   [System] GPU Memory Usage: {allocated_mb:.2f} MB (Shared Singleton)")
     
     def _load_sample_audio_files(self):
         """sample_data 폴더에서 실제 오디오 파일들을 로드하고 카테고리별 분류"""
@@ -291,12 +330,8 @@ class LoadTestSimulator:
         # 카테고리 카운터
         category_counts = {"scream": 0, "emergency_keyword": 0, "normal": 0}
         
-        # 모든 오디오 파일 로드 (wav, mp4, mp3)
-        all_files = (
-            list(self.sample_data_path.glob("*.wav")) + 
-            list(self.sample_data_path.glob("*.mp4")) + 
-            list(self.sample_data_path.glob("*.mp3"))
-        )
+        # 모든 오디오 파일 로드 (wav만 사용 - mp4, m4a는 이미 wav로 변환됨)
+        all_files = list(self.sample_data_path.glob("*.wav"))
         
         # 카테고리별 파일 목록 추적
         category_files = {"scream": [], "emergency_keyword": [], "normal": []}
@@ -308,6 +343,13 @@ class LoadTestSimulator:
                 # 파일명 기반 카테고리 분류
                 filename = file_path.name
                 category = self._classify_audio_file(filename)
+                
+                # 디버깅: 긴급키워드 파일 분류 확인
+                if filename in self.EMERGENCY_KEYWORD_FILES:
+                    if category != "emergency_keyword":
+                        logger.warning(f"  ⚠️ 분류 오류: {filename}는 긴급키워드 파일인데 {category}로 분류됨")
+                    else:
+                        logger.debug(f"  긴급키워드 파일 분류: {filename} -> {category}")
                 
                 self._all_audio_files.append((filename, audio, category))
                 category_counts[category] += 1
@@ -335,7 +377,7 @@ class LoadTestSimulator:
         loaded_emergency = set(category_files['emergency_keyword'])
         missing_emergency = expected_emergency - loaded_emergency
         if missing_emergency:
-            logger.warning(f"  ⚠️ 긴급키워드 파일 누락: {', '.join(missing_emergency)} (mp4 파일이 없거나 로드 실패)")
+            logger.warning(f"  ⚠️ 긴급키워드 파일 누락: {', '.join(missing_emergency)} (wav 파일이 없거나 로드 실패)")
     
     def _classify_audio_file(self, filename: str) -> str:
         """
@@ -344,13 +386,14 @@ class LoadTestSimulator:
         Returns:
             "scream" | "emergency_keyword" | "normal"
         """
-        # 비명: scream_*.mp3 (예: scream_1.mp3, scream_2.mp3, scream_3.mp3)
+        # 비명: scream_*.wav (예: scream_1.wav, scream_2.wav, scream_3.wav)
+        # .mp3 파일도 비명으로 분류 (변환 전 파일)
         if filename.startswith("scream_"):
             return "scream"
-        # 긴급 키워드: 특정 한국어 파일들
+        # 긴급 키워드: 특정 한국어 파일들 (.wav로 변경됨)
         elif filename in self.EMERGENCY_KEYWORD_FILES:
             return "emergency_keyword"
-        # 나머지는 일반
+        # 일반 파일
         else:
             return "normal"
     
@@ -500,13 +543,12 @@ class LoadTestSimulator:
         
         if self.device == "cuda":
             torch.cuda.synchronize()  # GPU 작업 완료 대기
-            # 주기적으로 GPU 메모리 정리 (매 5번째 청크마다 - 더 자주)
+            # 주기적으로 GPU 메모리 정리 (매 10번째 청크마다)
             if hasattr(self, '_chunk_count'):
                 self._chunk_count += 1
             else:
                 self._chunk_count = 1
-            if self._chunk_count % 5 == 0:  # 10 -> 5로 변경 (더 자주 정리)
-                gc.collect()
+            if self._chunk_count % 10 == 0:
                 torch.cuda.empty_cache()
             
         t1_end = time.perf_counter()
@@ -550,9 +592,7 @@ class LoadTestSimulator:
             if self.device == "cuda":
                 torch.cuda.synchronize()
                 # STT 추론 후에도 GPU 메모리 정리 (주기적으로)
-                # Whisper 모델도 GPU 메모리를 사용하므로 정리 필요
-                if self._chunk_count % 5 == 0:  # 10 -> 5로 변경
-                    gc.collect()
+                if self._chunk_count % 10 == 0:
                     torch.cuda.empty_cache()
                 
             t2_end = time.perf_counter()
@@ -920,8 +960,10 @@ class LoadTestSimulator:
             # 스트림 시작 시간 분산 (동시 시작 방지)
             time.sleep(interval / self.num_streams)
         
-        logger.info(f"⚠️ Python GIL 제약: CPU 모드에서는 threading이 실제 병렬 실행을 보장하지 않습니다. "
-                   f"실제 병렬 처리를 위해서는 GPU 사용 또는 multiprocessing이 필요합니다.")
+        # CPU 모드일 때만 GIL 제약 경고
+        if self.device == "cpu":
+            logger.info(f"⚠️ Python GIL 제약: CPU 모드에서는 threading이 실제 병렬 실행을 보장하지 않습니다. "
+                       f"실제 병렬 처리를 위해서는 GPU 사용 또는 multiprocessing이 필요합니다.")
         
         logger.info(f"모든 스트림 시작됨. {duration}초 동안 실행...")
         

@@ -25,6 +25,7 @@ from sentinel_pipeline.infrastructure.audio.readers.mic_reader import MicAudioRe
 from sentinel_pipeline.infrastructure.audio.readers.rtsp_reader import RtspAudioReader
 from sentinel_pipeline.infrastructure.audio.processors.scream_detector import ScreamDetector
 from sentinel_pipeline.infrastructure.audio.processors.risk_analyzer import RiskAnalyzer
+from sentinel_pipeline.infrastructure.audio.processors.vad_filter import create_vad_filter
 from sentinel_pipeline.application.event.emitter import EventEmitter
 from sentinel_pipeline.interface.api.ws_bus import publish_stream_update, broadcast
 
@@ -39,6 +40,7 @@ class AudioStreamContext:
         self.reader = None
         self.scream_detector = None
         self.risk_analyzer = None
+        self.vad_filter = None 
         
         # 상태 추적
         self.last_scream_time = 0.0
@@ -98,6 +100,7 @@ class AudioManager:
                 
                 if config.stt_enabled:
                     ctx.risk_analyzer = RiskAnalyzer(
+                        stream_id=config.stream_id,
                         model_size=config.stt_model_size,
                         enable_medium_path=config.enable_medium_path,
                         enable_heavy_path=config.enable_heavy_path,
@@ -105,6 +108,18 @@ class AudioManager:
                         semantic_threshold=config.semantic_threshold,
                         use_korean_model=config.use_korean_model
                     )
+                    
+                    # VAD 필터 초기화 (문지기 고용) - 침묵/잡음 차단
+                    try:
+                        ctx.vad_filter = create_vad_filter(
+                            sample_rate=config.sample_rate,
+                            threshold=0.5,  # 필요시 config에서 가져오게 수정 가능
+                            use_highpass=True
+                        )
+                        logger.info(f"🛡️ VAD Filter initialized for stream {config.stream_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to initialize VAD filter for {config.stream_id}: {e}")
+                        ctx.vad_filter = None
                 
                 # 2. 리더 초기화
                 if config.use_microphone:
@@ -244,14 +259,31 @@ class AudioManager:
                 
                 # 2. STT 및 위험 분석 (Latest-Win 전략)
                 # - 비명이 감지되지 않은 경우에만 STT 분석 수행
+                # - VAD 필터로 침묵/잡음 차단 (문지기 검문)
                 # - 최신 청크를 버퍼에 덮어씀 (Drop Oldest 자동 적용)
                 # - 작업자가 쉬고 있으면 깨워서 일을 시킴
                 if ctx.risk_analyzer:
-                    ctx.latest_chunk = chunk
+                    # VAD 검문소: 사람 목소리(Speech)일 때만 STT 큐에 넣음
+                    is_speech = True
+                    if ctx.vad_filter:
+                        try:
+                            # chunk가 numpy array라고 가정 (mic_reader/rtsp_reader 확인 필요)
+                            # 필요시 타입 변환 로직 추가
+                            is_speech = ctx.vad_filter.is_speech(chunk)
+                        except Exception as e:
+                            logger.debug(f"VAD filter error for {ctx.stream_id}: {e}, allowing through")
+                            is_speech = True  # 에러 시 통과 (안전 우선)
                     
-                    if not ctx.is_processing:
-                        ctx.is_processing = True
-                        self._executor.submit(self._process_loop, ctx)
+                    if is_speech:
+                        ctx.latest_chunk = chunk
+                        
+                        if not ctx.is_processing:
+                            ctx.is_processing = True
+                            self._executor.submit(self._process_loop, ctx)
+                    else:
+                        # 침묵/잡음 무시 (디버깅용 로그는 필요시 활성화)
+                        # logger.debug(f"[STREAM={ctx.stream_id}] Silence/noise filtered by VAD")
+                        pass
                 
         except Exception as e:
             logger.error(f"Error processing audio chunk for {ctx.stream_id}: {e}")
@@ -282,52 +314,60 @@ class AudioManager:
             ctx.is_processing = False
 
     def _process_risk_analysis(self, ctx: AudioStreamContext, chunk: Any):
-        """백그라운드 STT 처리"""
+        """백그라운드 STT 처리 (비동기 콜백 패턴)"""
+        
+        # [내부 함수] 결과가 나왔을 때 실행될 콜백 (워커 스레드에서 실행됨)
+        def on_inference_complete(result: dict):
+            # 워커 스레드에서 실행되므로, 예외 처리 중요
+            try:
+                # 1. STT 결과 전송
+                self._send_stt_result(
+                    stream_id=ctx.stream_id,
+                    stt_result=result
+                )
+                
+                # 2. 위험 감지 시 이벤트 처리
+                if result.get('is_dangerous'):
+                    ctx.state.stats.keyword_detected_count += 1
+                    event_type = result.get('event_type') or EventType.CUSTOM
+                    
+                    self._send_event_detected(
+                        stream_id=ctx.stream_id,
+                        event_type=event_type,
+                        data={
+                            'keyword': result.get('keyword'),
+                            'text': result.get('text'),
+                            'confidence': result.get('confidence')
+                        }
+                    )
+                    
+                    self._emit_event(
+                        stream_id=ctx.stream_id,
+                        event_type=event_type,
+                        confidence=result.get('confidence', 0.0),
+                        details={
+                            'keyword': result.get('keyword'),
+                            'text': result.get('text'),
+                            'original_text': result.get('text') # 호환성
+                        }
+                    )
+                else:
+                    # 안전할 때도 상태 업데이트
+                    self._send_pipeline_status(
+                        stream_id=ctx.stream_id,
+                        node_id=5,
+                        scream_detected=False,
+                        confidence=0.0
+                    )
+            except Exception as e:
+                logger.error(f"Error in inference callback for {ctx.stream_id}: {e}")
+
         try:
-            result = ctx.risk_analyzer.process(chunk)
-            
-            # STT 결과를 WebSocket으로 전송
-            self._send_stt_result(
-                stream_id=ctx.stream_id,
-                stt_result=result
-            )
-            
-            if result['is_dangerous']:
-                ctx.state.stats.keyword_detected_count += 1
-                event_type = result['event_type'] or EventType.CUSTOM
-                
-                # 위험 키워드 감지 이벤트 전송
-                self._send_event_detected(
-                    stream_id=ctx.stream_id,
-                    event_type=event_type,
-                    data={
-                        'keyword': result['keyword'],
-                        'text': result['text'],
-                        'confidence': result['confidence']
-                    }
-                )
-                
-                self._emit_event(
-                    stream_id=ctx.stream_id,
-                    event_type=event_type,
-                    confidence=result['confidence'],
-                    details={
-                        'keyword': result['keyword'],
-                        'text': result['text'],
-                        'original_text': result['text'] # 호환성
-                    }
-                )
-            else:
-                # 위험하지 않은 경우에도 파이프라인 상태 업데이트
-                self._send_pipeline_status(
-                    stream_id=ctx.stream_id,
-                    node_id=5,  # Risk Analysis 노드
-                    scream_detected=False,
-                    confidence=0.0
-                )
+            # RiskAnalyzer에게 일감 던지기 (콜백 함수도 같이 줌)
+            ctx.risk_analyzer.process(chunk, callback=on_inference_complete)
                 
         except Exception as e:
-            logger.error(f"Risk analysis error for {ctx.stream_id}: {e}")
+            logger.error(f"Risk analysis submission error for {ctx.stream_id}: {e}")
 
     def _emit_event(self, stream_id: str, event_type: EventType, confidence: float, details: dict):
         if self._event_emitter:
