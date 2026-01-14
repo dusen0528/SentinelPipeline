@@ -114,7 +114,19 @@
                         </div>
                         <input type="range" id="streamCount" min="1" max="50" value="10" 
                             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand"
-                            oninput="updateVal('streamCountVal', this.value)">
+                            oninput="updateStreamsAndActive(this.value)">
+                    </div>
+                    
+                    <!-- Active Streams (Scream) Slider -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">Active Streams (Scream)</label>
+                            <span id="activeStreamsVal" class="text-sm font-bold text-red-600 font-mono">2</span>
+                        </div>
+                        <input type="range" id="activeStreams" min="0" max="10" value="2" 
+                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-500"
+                            oninput="updateActiveStreams(this.value)">
+                        <p class="text-[9px] text-gray-400 mt-1">비명을 사용할 스트림 개수 (0 = 랜덤)</p>
                     </div>
                     
                     <!-- Whisper Model Selection -->
@@ -487,10 +499,40 @@
         function updateVal(id, val) {
             document.getElementById(id).innerText = val;
         }
+        
+        function updateStreamsAndActive(streamCount) {
+            const count = parseInt(streamCount);
+            updateVal('streamCountVal', count);
+            
+            // Active Streams 최대값 업데이트
+            const activeSlider = document.getElementById('activeStreams');
+            const maxActive = Math.max(1, count);
+            activeSlider.max = maxActive;
+            
+            // 현재 active_streams 값이 max를 초과하면 조정
+            const currentActive = parseInt(activeSlider.value);
+            if (currentActive > maxActive) {
+                activeSlider.value = maxActive;
+                updateActiveStreams(maxActive);
+            }
+        }
+        
+        function updateActiveStreams(val) {
+            const count = parseInt(val);
+            updateVal('activeStreamsVal', count);
+            
+            const streamCount = parseInt(document.getElementById('streamCount').value);
+            if (count > 0) {
+                const percentage = ((count / streamCount) * 100).toFixed(0);
+                log(`📊 Active streams: ${count}/${streamCount} (${percentage}%)`, 'info');
+            } else {
+                log(`📊 Active streams: Random (20% default)`, 'info');
+            }
+        }
 
         function setStreams(count) {
             document.getElementById('streamCount').value = count;
-            updateVal('streamCountVal', count);
+            updateStreamsAndActive(count);
             log(`Preset loaded: ${count} streams`, 'info');
         }
 
@@ -573,6 +615,7 @@
             }
             
             const streams = parseInt(document.getElementById('streamCount').value);
+            const activeStreams = parseInt(document.getElementById('activeStreams').value);
             const gpuEnabled = document.getElementById('gpuEnabled').checked;
             const warmup = document.getElementById('warmupEnabled').checked;
             const continuous = document.getElementById('continuousMode').checked;
@@ -600,6 +643,11 @@
                 duration: duration,
                 interval: interval
             });
+            
+            // active_streams 파라미터 추가 (0이면 전달하지 않음 - None으로 처리)
+            if (activeStreams > 0) {
+                params.append('active_streams', activeStreams);
+            }
             
             // SSE 연결 시작
             currentEventSource = new EventSource(`/api/benchmark/stream?${params}`);
@@ -641,7 +689,16 @@
                             
                             log(`[${data.stream_id}] ${data.audio_file} | GT:${gt} | ${status} (${data.scream_prob.toFixed(2)}) | ${data.total_latency.toFixed(1)}ms ${mark}`, isCorrect ? 'success' : 'error');
                             
-                            if (data.transcript) {
+                            // VAD 필터링 정보 (비명이 아닐 때만 의미 있음)
+                            if (!data.detected && data.vad_passed !== undefined) {
+                                if (!data.vad_passed) {
+                                    log(`  └─ VAD: 🚫 Filtered (no speech detected)`, 'warning');
+                                } else if (data.transcript) {
+                                    log(`  └─ STT: "${data.transcript}"`, 'info');
+                                } else {
+                                    log(`  └─ VAD: ✅ Passed (STT executed)`, 'info');
+                                }
+                            } else if (data.transcript) {
                                 log(`  └─ STT: "${data.transcript}"`, 'info');
                             }
                             
@@ -773,7 +830,7 @@
             const timestamp = data.timestamp || new Date().toISOString().replace(/[:.]/g, '-');
             
             // 헤더 (시계열 리소스 포함)
-            let csv = 'stream_id,chunk_id,timestamp,audio_file,audio_category,detected,scream_prob,step1_latency_ms,step2_latency_ms,total_latency_ms,gpu_memory_mb,cpu_percent,transcript\n';
+            let csv = 'stream_id,chunk_id,timestamp,audio_file,audio_category,detected,scream_prob,vad_passed,step1_latency_ms,step2_latency_ms,total_latency_ms,gpu_memory_mb,cpu_percent,transcript\n';
             
             // 데이터 행만
             for (const d of data.details) {
@@ -783,7 +840,8 @@
                 const category = d.audio_category || 'normal';
                 const gpuMem = d.gpu_memory_mb !== undefined ? d.gpu_memory_mb.toFixed(2) : '0';
                 const cpuPct = d.cpu_percent !== undefined ? d.cpu_percent.toFixed(1) : '0';
-                csv += `${d.stream_id},${chunkId},${ts},"${d.audio_file || ''}",${category},${d.detected},${d.scream_prob.toFixed(3)},${d.step1_latency.toFixed(2)},${d.step2_latency.toFixed(2)},${d.total_latency.toFixed(2)},${gpuMem},${cpuPct},"${transcript}"\n`;
+                const vadPassed = d.vad_passed !== undefined ? d.vad_passed : true;
+                csv += `${d.stream_id},${chunkId},${ts},"${d.audio_file || ''}",${category},${d.detected},${d.scream_prob.toFixed(3)},${vadPassed},${d.step1_latency.toFixed(2)},${d.step2_latency.toFixed(2)},${d.total_latency.toFixed(2)},${gpuMem},${cpuPct},"${transcript}"\n`;
             }
             
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });

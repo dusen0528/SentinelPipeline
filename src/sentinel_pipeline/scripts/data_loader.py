@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import numpy as np
 import librosa
 from sentinel_pipeline.common.logging import get_logger
@@ -77,14 +77,93 @@ class AudioDataLoader:
             return "dummy.wav", np.zeros(self.sample_rate*2, dtype=np.float32), "normal"
         return random.choice(self.audio_cache)
     
-    def get_prepared_chunk(self, window_sec: float = 2.0) -> Tuple[str, np.ndarray, Dict]:
+    def get_sample_by_category(self, category: str) -> Tuple[str, np.ndarray, str]:
+        """특정 카테고리의 샘플을 무작위로 반환
+        
+        Args:
+            category: "scream", "emergency_keyword", "normal" 중 하나
+            
+        Returns:
+            (filename, audio, category) 튜플
+        """
+        if not self.audio_cache:
+            return "dummy.wav", np.zeros(self.sample_rate*2, dtype=np.float32), "normal"
+        
+        # 해당 카테고리의 인덱스 목록
+        category_indices = self.categories.get(category, [])
+        
+        if not category_indices:
+            # 카테고리에 해당하는 파일이 없으면 일반 샘플 반환
+            logger.warning(f"⚠️ No {category} samples found, using random sample")
+            return self.get_random_sample()
+        
+        # 카테고리 내에서 랜덤 선택
+        idx = random.choice(category_indices)
+        return self.audio_cache[idx]
+    
+    def get_silent_chunk(self, window_sec: float = 2.0) -> Tuple[str, np.ndarray, Dict]:
+        """조용한 더미 청크 생성 (VAD에서 차단될 것)
+        
+        Args:
+            window_sec: 오디오 윈도우 길이 (초)
+        
+        Returns:
+            (filename, chunk, info_dict) 튜플
+        """
+        target_len = int(self.sample_rate * window_sec)
+        # 거의 조용한 소리 (매우 작은 노이즈)
+        chunk = np.random.normal(0.0, 0.001, target_len).astype(np.float32)
+        
+        info = {
+            "filename": "silent_dummy.wav",
+            "category": "silent"
+        }
+        
+        return "silent_dummy.wav", chunk, info
+    
+    def get_noise_chunk(self, window_sec: float = 2.0) -> Tuple[str, np.ndarray, Dict]:
+        """노이즈만 있는 더미 청크 생성 (VAD에서 차단될 것)
+        
+        Args:
+            window_sec: 오디오 윈도우 길이 (초)
+        
+        Returns:
+            (filename, chunk, info_dict) 튜플
+        """
+        target_len = int(self.sample_rate * window_sec)
+        # 백색 노이즈 (사람 목소리 없음)
+        chunk = np.random.normal(0.0, 0.01, target_len).astype(np.float32)
+        
+        info = {
+            "filename": "noise_dummy.wav",
+            "category": "noise"
+        }
+        
+        return "noise_dummy.wav", chunk, info
+    
+    def get_prepared_chunk(self, window_sec: float = 2.0, category: Optional[str] = None, use_dummy: bool = False) -> Tuple[str, np.ndarray, Dict]:
         """모델 입력 길이에 맞게 자르거나 패딩된 청크 반환
+        
+        Args:
+            window_sec: 오디오 윈도우 길이 (초)
+            category: 특정 카테고리 지정 (None이면 랜덤 선택)
+            use_dummy: True면 조용한/노이즈 더미 사용 (VAD 차단용)
         
         Returns:
             (filename, chunk, info_dict) 튜플
             info_dict: {"filename": str, "category": str}
         """
-        filename, raw_audio, category = self.get_random_sample()
+        # 더미 데이터 사용 (조용한/노이즈)
+        if use_dummy:
+            if random.random() < 0.5:
+                return self.get_silent_chunk(window_sec)
+            else:
+                return self.get_noise_chunk(window_sec)
+        
+        if category:
+            filename, raw_audio, category = self.get_sample_by_category(category)
+        else:
+            filename, raw_audio, category = self.get_random_sample()
         
         target_len = int(self.sample_rate * window_sec)
         curr_len = len(raw_audio)

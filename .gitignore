@@ -18,6 +18,7 @@ resnet18_scream_detector_v2.pth
 **/resnet18_scream_detector_v2.pth
 
 *.log
+*.csv
 dist/
 build/
 

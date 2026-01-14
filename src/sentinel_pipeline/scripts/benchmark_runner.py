@@ -9,6 +9,7 @@ GPU 부하 테스트 시뮬레이터 (Batch & Async 지원 버전)
 import asyncio
 import csv
 import time
+import random
 import psutil
 import torch
 import numpy as np
@@ -21,6 +22,7 @@ from datetime import datetime
 
 from sentinel_pipeline.infrastructure.audio.processors.batch_scream_detector import BatchScreamDetector
 from sentinel_pipeline.infrastructure.audio.processors.risk_analyzer import GlobalInferenceEngine
+from sentinel_pipeline.infrastructure.audio.processors.vad_filter import create_vad_filter
 from sentinel_pipeline.scripts.data_loader import AudioDataLoader
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,7 @@ class BenchmarkResult:
                 "audio_category",
                 "detected",
                 "scream_prob",
+                "vad_passed",
                 "step1_latency_ms",
                 "step2_latency_ms",
                 "total_latency_ms",
@@ -91,6 +94,7 @@ class BenchmarkResult:
                     d.get("audio_category", "normal"),
                     d.get("detected", False),
                     round(d.get("scream_prob", 0.0), 3),
+                    d.get("vad_passed", True),  # VAD 통과 여부 (비명이면 의미 없음)
                     round(d.get("step1_latency", 0.0), 2),
                     round(d.get("step2_latency", 0.0), 2),
                     round(d.get("total_latency", 0.0), 2),
@@ -114,12 +118,26 @@ class LoadTestSimulator:
         num_streams: int = 10, 
         gpu_enabled: bool = True, 
         whisper_model: str = "base",
-        batch_size: int = 16
+        batch_size: int = 16,
+        active_streams: int = None  # 비명을 사용할 스트림 개수 (None이면 모든 스트림 랜덤)
     ):
         self.num_streams = num_streams
         self.device = "cuda" if gpu_enabled and torch.cuda.is_available() else "cpu"
         self.whisper_model_name = whisper_model
         self.batch_size = batch_size
+        
+        # 비명 스트림 설정
+        if active_streams is None:
+            # 기본값: 전체의 20% (최소 1개)
+            active_streams = max(1, int(num_streams * 0.2))
+        self.active_streams = min(active_streams, num_streams)  # 최대값 제한
+        
+        # 각 스트림에 비명/일반 할당 (테스트 시작 전에 미리 결정)
+        self.stream_categories = self._assign_stream_categories()
+        
+        # 비명이 아닌 스트림에서 더미 사용 확률 (조용한/노이즈만 있는 구간 시뮬레이션)
+        # 기본값: 50% 확률로 실제 음성, 50% 확률로 더미 (VAD 차단될 것)
+        self.normal_dummy_probability = 0.5
         
         # 모델 경로
         project_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -130,12 +148,40 @@ class LoadTestSimulator:
         self.stt_engine: Optional[GlobalInferenceEngine] = None
         self.data_loader = AudioDataLoader()
         
+        # VAD 필터 (실제 파이프라인과 동일하게 동작)
+        self.vad_filter = None
+        try:
+            self.vad_filter = create_vad_filter(sample_rate=16000, threshold=0.5)
+            if self.vad_filter:
+                logger.info("✅ VAD Filter initialized for realistic benchmark")
+        except Exception as e:
+            logger.warning(f"⚠️ VAD Filter not available: {e}. STT will run for all non-scream chunks.")
+            self.vad_filter = None
+        
         # 결과 저장용
         self.results = []
         self._lock = threading.Lock()
         
         # 비동기 루프 (스레드에서 실행될 때 필요)
         self._loop = None
+    
+    def _assign_stream_categories(self) -> List[str]:
+        """각 스트림에 비명/일반 카테고리를 할당
+        
+        Returns:
+            stream_id별 카테고리 리스트 (예: ["scream", "normal", "normal", ...])
+        """
+        categories = []
+        # 먼저 모든 스트림을 "normal"로 초기화
+        categories = ["normal"] * self.num_streams
+        
+        # active_streams 개수만큼 랜덤하게 "scream"으로 변경
+        scream_indices = random.sample(range(self.num_streams), self.active_streams)
+        for idx in scream_indices:
+            categories[idx] = "scream"
+        
+        logger.info(f"📊 Stream assignment: {self.active_streams}/{self.num_streams} streams will use scream samples")
+        return categories
 
     def _ensure_engines(self):
         """엔진 초기화 (동기 호출용)"""
@@ -167,45 +213,65 @@ class LoadTestSimulator:
             # 벤치마크 설정에 맞춰 모델 크기 조정 가능하지만, 
             # 여기서는 이미 초기화된 엔진을 사용함
 
-    async def _process_chunk_async(self, stream_id: int, chunk: np.ndarray, file_info: dict) -> dict:
+    async def _process_chunk_async(self, stream_id: int, chunk: np.ndarray, file_info: dict, category: str = None) -> dict:
         """한 개의 청크를 처리하는 비동기 로직"""
         start_t = time.perf_counter()
-        # 처리 시작  시간 
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        # 처리 시작 절대 시간 (Unix timestamp - float, InferenceRequest용)
+        timestamp_float = time.time()
+        # CSV 기록용 읽기 쉬운 형식 (문자열)
+        timestamp_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         
         # 1. Scream Detection (Batch)
         s1_start = time.perf_counter()
         scream_res = await self.detector.predict(chunk)
         s1_latency = (time.perf_counter() - s1_start) * 1000.0
         
-        # 2. STT (비명이 아닐 때만 수행하는 시나리오)
+        # 2. STT (비명이 아닐 때만 수행, VAD 필터 통과 시에만)
         s2_latency = 0.0
         transcript = ""
+        vad_passed = False
         
         if not scream_res['is_scream']:
-            s2_start = time.perf_counter()
-            # STT는 동기 큐 방식이므로 래핑
-            # 벤치마크이므로 결과를 기다려야 함 (Callback 사용)
-            stt_future = self._loop.create_future()
+            # VAD 필터 체크 (실제 파이프라인과 동일)
+            is_speech = True
+            if self.vad_filter:
+                try:
+                    is_speech = self.vad_filter.is_speech(chunk)
+                    vad_passed = is_speech
+                except Exception as e:
+                    logger.warning(f"VAD check failed: {e}, allowing through")
+                    is_speech = True
+                    vad_passed = True
             
-            def stt_callback(res):
-                if not stt_future.done():
-                    self._loop.call_soon_threadsafe(stt_future.set_result, res)
-            
-            # RiskAnalyzer 구조와 유사하게 요청
-            from sentinel_pipeline.infrastructure.audio.processors.risk_analyzer import InferenceRequest
-            req = InferenceRequest(
-                stream_id=f"sim_{stream_id}",
-                audio_data=chunk,
-                callback=stt_callback,
-                timestamp=timestamp
-            )
-            self.stt_engine.submit(req)
-            
-            # 결과 대기
-            stt_res = await stt_future
-            s2_latency = (time.perf_counter() - s2_start) * 1000.0
-            transcript = stt_res.get('text', '')
+            # VAD 통과 시에만 STT 실행
+            if is_speech:
+                s2_start = time.perf_counter()
+                # STT는 동기 큐 방식이므로 래핑
+                # 벤치마크이므로 결과를 기다려야 함 (Callback 사용)
+                stt_future = self._loop.create_future()
+                
+                def stt_callback(res):
+                    if not stt_future.done():
+                        self._loop.call_soon_threadsafe(stt_future.set_result, res)
+                
+                # RiskAnalyzer 구조와 유사하게 요청
+                # InferenceRequest.timestamp는 float 타입이어야 함 (latency 계산용)
+                from sentinel_pipeline.infrastructure.audio.processors.risk_analyzer import InferenceRequest
+                req = InferenceRequest(
+                    stream_id=f"sim_{stream_id}",
+                    audio_data=chunk,
+                    callback=stt_callback,
+                    timestamp=timestamp_float  # float 타입 사용
+                )
+                self.stt_engine.submit(req)
+                
+                # 결과 대기
+                stt_res = await stt_future
+                s2_latency = (time.perf_counter() - s2_start) * 1000.0
+                transcript = stt_res.get('text', '')
+            else:
+                # VAD에서 걸러짐 (STT 스킵)
+                vad_passed = False
 
         total_latency = (time.perf_counter() - start_t) * 1000.0
         
@@ -220,7 +286,7 @@ class LoadTestSimulator:
         return {
             "stream_id": stream_id,
             "chunk_id": 0,  # 배치 모드에서는 0, continuous 모드에서는 chunk_count 사용
-            "timestamp": timestamp,
+            "timestamp": timestamp_str,  # CSV용 문자열 형식
             "step1_latency": s1_latency,
             "step2_latency": s2_latency,
             "total_latency": total_latency,
@@ -231,7 +297,8 @@ class LoadTestSimulator:
             "gpu_memory_mb": gpu_mem,
             "cpu_percent": psutil.cpu_percent(),
             "system_memory_mb": system_mem_mb,
-            "transcript": transcript
+            "transcript": transcript,
+            "vad_passed": vad_passed  # VAD 통과 여부 (비명이 아닐 때만 의미 있음)
         }
 
     def run_batch_test(self, warmup: bool = True, progress_callback: Callable = None) -> BenchmarkResult:
@@ -250,7 +317,18 @@ class LoadTestSimulator:
         start_t = time.time()
         tasks = []
         for i in range(self.num_streams):
-            file_path, chunk, info = self.data_loader.get_prepared_chunk()
+            # 스트림별로 할당된 카테고리 사용
+            assigned_category = self.stream_categories[i]
+            
+            # 비명이 아닌 스트림에서 랜덤으로 더미 사용 (조용한/노이즈 구간 시뮬레이션)
+            use_dummy = False
+            if assigned_category != "scream":
+                use_dummy = random.random() < self.normal_dummy_probability
+            
+            file_path, chunk, info = self.data_loader.get_prepared_chunk(
+                category=assigned_category if not use_dummy else None,
+                use_dummy=use_dummy
+            )
             tasks.append(self._process_chunk_async(i, chunk, info))
         
         # 실행 및 결과 수집 (Progress는 개별적으로 쏴야 함)
@@ -288,7 +366,18 @@ class LoadTestSimulator:
             nonlocal processed_count
             chunk_count = 0
             while time.time() < end_time:
-                filename, chunk, info = self.data_loader.get_prepared_chunk()
+                # 스트림별로 할당된 카테고리 사용
+                assigned_category = self.stream_categories[sid]
+                
+                # 비명이 아닌 스트림에서 랜덤으로 더미 사용 (조용한/노이즈 구간 시뮬레이션)
+                use_dummy = False
+                if assigned_category != "scream":
+                    use_dummy = random.random() < self.normal_dummy_probability
+                
+                filename, chunk, info = self.data_loader.get_prepared_chunk(
+                    category=assigned_category if not use_dummy else None,
+                    use_dummy=use_dummy
+                )
                 res = await self._process_chunk_async(sid, chunk, info)
                 
                 # Continuous 모드에서는 chunk_id 업데이트
@@ -331,6 +420,8 @@ class LoadTestSimulator:
         latencies = [d['total_latency'] for d in details]
         gpu_mems = [d['gpu_memory_mb'] for d in details]
         scream_count = sum(1 for d in details if d['detected'])
+        # VAD 통과한 비명이 아닌 청크만 STT 실행됨
+        stt_executed = sum(1 for d in details if not d['detected'] and d.get('vad_passed', True))
         
         return BenchmarkResult(
             streams=self.num_streams,
@@ -343,7 +434,7 @@ class LoadTestSimulator:
             cpu_percent=psutil.cpu_percent(),
             device=self.device,
             scream_count=scream_count,
-            stt_count=len(details) - scream_count,
+            stt_count=stt_executed,  # VAD 통과한 것만 카운트
             total_time=total_time,
             duration=duration,
             total_processed=len(details),

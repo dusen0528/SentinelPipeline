@@ -37,6 +37,7 @@ class BenchmarkRequest(BaseModel):
     continuous: bool = Field(default=False, description="연속 부하 테스트 모드")
     duration: float = Field(default=30.0, ge=5.0, le=300.0, description="연속 테스트 지속 시간 (초)")
     interval: float = Field(default=1.0, ge=0.5, le=5.0, description="오디오 입력 간격 (초)")
+    active_streams: Optional[int] = Field(default=None, ge=0, description="비명을 사용할 스트림 개수 (None이면 전체의 20% 자동 계산)")
 
 
 class StreamDetail(BaseModel):
@@ -115,6 +116,7 @@ async def run_benchmark(request: BenchmarkRequest) -> BenchmarkResponse:
             num_streams=request.streams,
             gpu_enabled=request.gpu_enabled,
             whisper_model=request.whisper_model,
+            active_streams=request.active_streams,
         )
         
         # 벤치마크 실행
@@ -260,6 +262,7 @@ async def stream_benchmark(
     duration: float = 30.0,
     interval: float = 1.0,
     batch_size: int = 16,  # 배치 크기 (GPU 메모리 여유에 따라 조정: 8, 16, 32 등)
+    active_streams: Optional[int] = None,  # 비명을 사용할 스트림 개수 (None이면 전체의 20% 자동 계산)
 ):
     """
     SSE를 통한 실시간 벤치마크 스트리밍
@@ -287,6 +290,7 @@ async def stream_benchmark(
                 gpu_enabled=gpu_enabled,
                 whisper_model=whisper_model,
                 batch_size=batch_size,
+                active_streams=active_streams,
             )
             
             if continuous:

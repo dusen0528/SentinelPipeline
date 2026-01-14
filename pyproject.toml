@@ -60,14 +60,18 @@ dev = [
 ]
 
 [tool.uv]
-# Linux와 Windows 환경 모두를 지원하도록 해결 범위 확장
-environments = ["sys_platform == 'linux'", "sys_platform == 'win32'"]
+# x86_64(AMD64) 아키텍처만 지원 (aarch64 제외)
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'amd64'"
+]
 
 # PyTorch CUDA 인덱스 설정 (원격 서버 GPU용)
 # explicit = true는 명시된 패키지 외에는 이 인덱스를 쓰지 말라는 의미
+# CUDA 12.4 인덱스로 업그레이드 (PyTorch 2.6.0+ 지원)
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu121"
+url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 # 특정 패키지만 해당 인덱스에서 가져오도록 지정 (requests 등 다른 패키지와의 충돌 방지)
